@@ -1,0 +1,5 @@
+project_id = "qdzuwnqejtjbtcysteip"
+
+# Webhook da Meta: chega sem JWT do Supabase. Quem autentica é a assinatura X-Hub-Signature-256.
+[functions.pre-atendimento]
+verify_jwt = false

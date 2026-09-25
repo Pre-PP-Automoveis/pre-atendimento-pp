@@ -1,0 +1,6 @@
+{
+  "tasks": {
+    "test": "deno test supabase/functions/pre-atendimento/",
+    "check": "deno check supabase/functions/pre-atendimento/index.ts"
+  }
+}
