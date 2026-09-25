@@ -32,7 +32,6 @@ supabase secrets set WHATSAPP_TOKEN=...            # usuário do sistema do Busi
 supabase secrets set WHATSAPP_APP_SECRET=...       # app da Meta, para validar a assinatura do webhook
 supabase secrets set WHATSAPP_VERIFY_TOKEN=...     # texto qualquer, repetido no painel da Meta
 supabase secrets set ANTHROPIC_API_KEY=...         # projeto novo: a chave da prospecção não vem junto
-supabase secrets set PA_CRON_SECRET=...            # texto aleatório; o mesmo vai para o Vault abaixo
 # WHATSAPP_GRAPH_VERSION é opcional, padrão v23.0
 ```
 
@@ -44,12 +43,8 @@ supabase db push                                    # tabelas pa_* e a loja PP, 
 supabase functions deploy pre-atendimento           # verify_jwt = false já está no config.toml
 ```
 
-Uma vez, no SQL do projeto, para o cron achar a função (o valor não vai para o git):
-
-```sql
-select vault.create_secret('https://qdzuwnqejtjbtcysteip.supabase.co/functions/v1/pre-atendimento', 'pa_url_funcao');
-select vault.create_secret('<mesmo valor de PA_CRON_SECRET>', 'pa_cron_secret');
-```
+O segredo do cron não é configurado à mão: a migração `20260924235000_vault_cron_pp.sql` gera um valor aleatório
+no Vault e grava o endereço da função. O cron manda o segredo no cabeçalho e a função confere com `pa_confere_cron`.
 
 URL do webhook para o painel da Meta: `https://qdzuwnqejtjbtcysteip.supabase.co/functions/v1/pre-atendimento`,
 assinando o campo `messages`.

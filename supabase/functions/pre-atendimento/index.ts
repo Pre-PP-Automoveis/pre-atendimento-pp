@@ -11,10 +11,11 @@ import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
 const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
-const APP_SECRET = Deno.env.get("WHATSAPP_APP_SECRET")!;
-const VERIFY_TOKEN = Deno.env.get("WHATSAPP_VERIFY_TOKEN")!;
-const CRON_SECRET = Deno.env.get("PA_CRON_SECRET") ?? "";
+/* criado na primeira conversa: sem a chave gravada, o cron e a verificação da Meta continuam de pé */
+let _anthropic: Anthropic | null = null;
+const anthropic = () => (_anthropic ??= new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") }));
+const APP_SECRET = Deno.env.get("WHATSAPP_APP_SECRET") ?? "";
+const VERIFY_TOKEN = Deno.env.get("WHATSAPP_VERIFY_TOKEN") ?? "";
 
 /* USD por token. Cache de 1 hora: escrita a 2x, leitura a 0,1x da entrada. */
 const PRECOS: Record<string, { in: number; out: number }> = {
@@ -64,7 +65,7 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   /* verificação do webhook, feita uma vez no painel da Meta */
   if (req.method === "GET") {
-    const ok = url.searchParams.get("hub.mode") === "subscribe" && url.searchParams.get("hub.verify_token") === VERIFY_TOKEN;
+    const ok = !!VERIFY_TOKEN && url.searchParams.get("hub.mode") === "subscribe" && url.searchParams.get("hub.verify_token") === VERIFY_TOKEN;
     return ok ? new Response(url.searchParams.get("hub.challenge") ?? "") : new Response("forbidden", { status: 403 });
   }
   if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
@@ -72,7 +73,8 @@ Deno.serve(async (req) => {
   /* cron do banco (pg_cron + pg_net), a cada 5 minutos: avisa os vendedores da fila das lojas que abriram */
   const cron = req.headers.get("x-cron-secret");
   if (cron !== null) {
-    if (!CRON_SECRET || cron !== CRON_SECRET) return new Response("forbidden", { status: 403 });
+    const { data: ok } = await admin.rpc("pa_confere_cron", { segredo: cron });
+    if (ok !== true) return new Response("forbidden", { status: 403 });
     const despachados = await despacharFila();
     return new Response(JSON.stringify({ despachados }), { headers: { "Content-Type": "application/json" } });
   }
@@ -235,7 +237,7 @@ async function responder(loja: Linha, conversaId: string) {
 
   try {
     for (let volta = 0; volta < 3; volta++) {
-      const resp = await anthropic.messages.create({
+      const resp = await anthropic().messages.create({
         model: modelo,
         max_tokens: 2048,
         /* triagem de roteiro fechado: esforço baixo responde rápido e custa menos. Haiku 4.5 não aceita effort. */

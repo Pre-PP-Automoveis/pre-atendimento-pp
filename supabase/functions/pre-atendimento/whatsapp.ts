@@ -7,7 +7,7 @@ const TOKEN = () => Deno.env.get("WHATSAPP_TOKEN")!;
 
 /* X-Hub-Signature-256 = "sha256=" + HMAC-SHA256(app secret, corpo cru). Sem isso qualquer um posta no webhook. */
 export async function assinaturaValida(corpo: string, cabecalho: string | null, segredo: string) {
-  if (!cabecalho?.startsWith("sha256=")) return false;
+  if (!segredo || !cabecalho?.startsWith("sha256=")) return false;
   const chave = await crypto.subtle.importKey("raw", new TextEncoder().encode(segredo), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = new Uint8Array(await crypto.subtle.sign("HMAC", chave, new TextEncoder().encode(corpo)));
   const esperado = Array.from(sig, (b) => b.toString(16).padStart(2, "0")).join("");
