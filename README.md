@@ -25,22 +25,28 @@ A primeira resposta de cada atendimento leva o aviso do item 8.5 do contrato em 
 com um padrão no código). Se a Claude falhar, o lead recebe uma resposta de contingência e o lead vai direto
 ao vendedor (item 4.6).
 
+## Acesso ao Supabase
+
+Os comandos passam por `scripts/supabase.sh`, que usa um token da conta dona do projeto guardado fora do git
+(`~/.config/<nome do repositório>/supabase-token`). O login global do Supabase na máquina não muda. Sem o token,
+o script mostra onde gerar e o comando para gravar sem o valor aparecer na tela.
+
 ## Segredos
 
 ```bash
-supabase secrets set WHATSAPP_TOKEN=...            # usuário do sistema do Business Manager da Moza
-supabase secrets set WHATSAPP_APP_SECRET=...       # app da Meta, para validar a assinatura do webhook
-supabase secrets set WHATSAPP_VERIFY_TOKEN=...     # texto qualquer, repetido no painel da Meta
-supabase secrets set ANTHROPIC_API_KEY=...         # projeto novo: a chave da prospecção não vem junto
+scripts/supabase.sh secrets set WHATSAPP_TOKEN=...            # usuário do sistema do Business Manager da Moza
+scripts/supabase.sh secrets set WHATSAPP_APP_SECRET=...       # app da Meta, para validar a assinatura do webhook
+scripts/supabase.sh secrets set WHATSAPP_VERIFY_TOKEN=...     # texto qualquer, repetido no painel da Meta
+scripts/supabase.sh secrets set ANTHROPIC_API_KEY=...         # projeto novo: a chave da prospecção não vem junto
 # WHATSAPP_GRAPH_VERSION é opcional, padrão v23.0
 ```
 
 ## Subir
 
 ```bash
-supabase link --project-ref qdzuwnqejtjbtcysteip   # uma vez por máquina
-supabase db push                                    # tabelas pa_* e a loja PP, inativa
-supabase functions deploy pre-atendimento           # verify_jwt = false já está no config.toml
+scripts/supabase.sh link --project-ref qdzuwnqejtjbtcysteip   # uma vez por máquina
+scripts/supabase.sh db push                                    # tabelas pa_* e a loja PP, inativa
+scripts/supabase.sh functions deploy pre-atendimento           # verify_jwt = false já está no config.toml
 ```
 
 O segredo do cron não é configurado à mão: a migração `20260924235000_vault_cron_pp.sql` gera um valor aleatório
