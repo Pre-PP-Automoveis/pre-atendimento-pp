@@ -16,6 +16,11 @@ As tabelas aceitam mais de uma loja (`pa_lojas`), mas este repositório e este p
    Ele toca em **Assumi**, e esse toque é o carimbo `primeira_acao_humana_em`.
 6. Se o lead voltar a escrever no número da loja, o robô lembra quem está com o atendimento.
 
+**Fora do horário** o robô atende igual: responde, tira dúvida com a ficha e faz a triagem inteira. No encaminhamento,
+em vez de avisar o vendedor, o atendimento entra na `fila` e o lead ouve que um vendedor o atende quando a loja abrir,
+com dia e hora ("amanhã às 08:00"). A cada 5 minutos o `pg_cron` chama a função, que avisa os vendedores da fila das
+lojas que já abriram, pelo mesmo rodízio. O `encaminhado_em` marca esse aviso, então o SLA conta do horário comercial.
+
 A primeira resposta de cada atendimento leva o aviso do item 8.5 do contrato em texto fixo (`pa_lojas.aviso_inicial`,
 com um padrão no código). Se a Claude falhar, o lead recebe uma resposta de contingência e o lead vai direto
 ao vendedor (item 4.6).
@@ -27,6 +32,7 @@ supabase secrets set WHATSAPP_TOKEN=...            # usuário do sistema do Busi
 supabase secrets set WHATSAPP_APP_SECRET=...       # app da Meta, para validar a assinatura do webhook
 supabase secrets set WHATSAPP_VERIFY_TOKEN=...     # texto qualquer, repetido no painel da Meta
 supabase secrets set ANTHROPIC_API_KEY=...         # projeto novo: a chave da prospecção não vem junto
+supabase secrets set PA_CRON_SECRET=...            # texto aleatório; o mesmo vai para o Vault abaixo
 # WHATSAPP_GRAPH_VERSION é opcional, padrão v23.0
 ```
 
@@ -36,6 +42,13 @@ supabase secrets set ANTHROPIC_API_KEY=...         # projeto novo: a chave da pr
 supabase link --project-ref qdzuwnqejtjbtcysteip   # uma vez por máquina
 supabase db push                                    # tabelas pa_* e a loja PP, inativa
 supabase functions deploy pre-atendimento           # verify_jwt = false já está no config.toml
+```
+
+Uma vez, no SQL do projeto, para o cron achar a função (o valor não vai para o git):
+
+```sql
+select vault.create_secret('https://qdzuwnqejtjbtcysteip.supabase.co/functions/v1/pre-atendimento', 'pa_url_funcao');
+select vault.create_secret('<mesmo valor de PA_CRON_SECRET>', 'pa_cron_secret');
 ```
 
 URL do webhook para o painel da Meta: `https://qdzuwnqejtjbtcysteip.supabase.co/functions/v1/pre-atendimento`,
@@ -82,7 +95,7 @@ deno task check
 
 ## Fora da fase 1
 
-- Escalonamento para o gerente quando ninguém toca em Assumi no prazo (precisa de agendamento com pg_cron).
+- Escalonamento para o gerente quando ninguém toca em Assumi no prazo (o cron já existe, falta a regra).
 - Tela no painel da Moza lendo `pa_conversas` e `pa_volume_mensal`.
 - Registro automático no BNDV, que não tem API pública (item 3.5).
 - Transcrição de áudio.

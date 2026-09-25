@@ -27,18 +27,21 @@ export function agoraSP(d = new Date()) {
   return { dia, hhmm: `${p.hour}:${p.minute}`, data: `${p.day}/${p.month}` };
 }
 
-/* loja aberta agora? se não, quando uma pessoa retoma */
+/* loja aberta agora? se não, quando abre ("amanhã às 08:00"), que é quando o vendedor recebe o lead */
 export function situacaoHorario(horario: Loja["horario"], d = new Date()) {
   const { dia, hhmm } = agoraSP(d);
   const hoje = horario[dia];
-  if (hoje && hhmm >= hoje[0] && hhmm < hoje[1]) return { aberta: true, texto: `loja aberta até ${hoje[1]}` };
-  if (hoje && hhmm < hoje[0]) return { aberta: false, texto: `loja fechada; abre hoje às ${hoje[0]}` };
+  if (hoje && hhmm >= hoje[0] && hhmm < hoje[1]) return { aberta: true, abre: null, texto: `loja aberta até ${hoje[1]}` };
+  if (hoje && hhmm < hoje[0]) return { aberta: false, abre: `hoje às ${hoje[0]}`, texto: `loja fechada; abre hoje às ${hoje[0]}` };
   for (let i = 1; i <= 7; i++) {
     const prox = DIAS[(DIAS.indexOf(dia) + i) % 7];
     const h = horario[prox];
-    if (h) return { aberta: false, texto: `loja fechada; abre ${i === 1 ? "amanhã" : NOME_DIA[prox]} às ${h[0]}` };
+    if (h) {
+      const abre = `${i === 1 ? "amanhã" : NOME_DIA[prox]} às ${h[0]}`;
+      return { aberta: false, abre, texto: `loja fechada; abre ${abre}` };
+    }
   }
-  return { aberta: false, texto: "horário da loja não cadastrado; não prometa quando uma pessoa retoma" };
+  return { aberta: false, abre: null, texto: "horário da loja não cadastrado; não prometa quando uma pessoa retoma" };
 }
 
 /* a ficha vai como está: o item 2.4 do contrato manda reproduzir sem alterar */
@@ -79,7 +82,11 @@ A pessoa pode pular direto para preço, troca, visita ou "quero falar com algué
 - mandar áudio ou foto pela segunda vez (você não ouve áudio nem vê foto; na primeira, peça com gentileza para escrever);
 - o assunto não for compra de carro (venda do carro dela para a loja, pós-venda, documento, reclamação).
 
-Depois de encaminhar, escreva uma última mensagem curta dizendo o primeiro nome de quem vai atender e que essa pessoa chama em instantes pelo WhatsApp dela. Se a loja estiver fechada, diga com honestidade quando a pessoa retoma, usando o horário do contexto.
+Depois de encaminhar, escreva uma última mensagem curta seguindo o que o resultado do encaminhamento disser: com a loja aberta, o primeiro nome de quem vai atender e que essa pessoa chama em instantes pelo WhatsApp dela; com a loja fechada, que um vendedor atende assim que a loja abrir, com o dia e a hora.
+
+# Fora do horário
+
+A loja fechada não muda o seu trabalho: responda, tire as dúvidas com a ficha e faça a triagem inteira, igual ao horário comercial. Só não prometa atendimento humano imediato. Se perguntarem se tem alguém agora, diga que o time volta na abertura, com o dia e a hora do contexto.
 
 # O que você nunca faz (é contrato da loja, não estilo)
 

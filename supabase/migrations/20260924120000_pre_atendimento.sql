@@ -54,7 +54,8 @@ create table if not exists pa_conversas (
   loja_id uuid not null references pa_lojas(id) on delete cascade,
   lead_wa text not null,
   lead_nome text,
-  estado text not null default 'robo' check (estado in ('robo', 'encaminhada', 'encerrada')),
+  -- fila: triagem terminou com a loja fechada; o vendedor da vez recebe o aviso quando a loja abrir
+  estado text not null default 'robo' check (estado in ('robo', 'fila', 'encaminhada', 'encerrada')),
   -- lista fechada de metodologia/comercial-lojas-de-veiculos.md
   origem text not null default 'Não identificado' check (origem in (
     'WebMotors', 'Mercado Livre', 'Tráfego Pago', 'Mobi Auto', 'Na Pista', 'OLX',
@@ -66,7 +67,8 @@ create table if not exists pa_conversas (
   iniciada_em timestamptz not null default now(),
   -- os dois carimbos da instalação 2 do método: só o segundo entra no indicador de SLA
   respondido_robo_em timestamptz,
-  encaminhado_em timestamptz,
+  fila_em timestamptz,
+  encaminhado_em timestamptz,                 -- quando o vendedor foi avisado (na abertura, se veio da fila)
   primeira_acao_humana_em timestamptz,
   ultima_msg_em timestamptz not null default now()
 );

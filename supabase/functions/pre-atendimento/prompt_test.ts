@@ -6,7 +6,7 @@ const H: Loja["horario"] = { seg: ["08:00", "18:00"], ter: ["08:00", "18:00"], q
 const sp = (iso: string) => new Date(`${iso}-03:00`);
 
 Deno.test("aberta no meio da tarde de quarta", () => {
-  assertEquals(situacaoHorario(H, sp("2026-09-23T15:00:00")), { aberta: true, texto: "loja aberta até 18:00" });
+  assertEquals(situacaoHorario(H, sp("2026-09-23T15:00:00")), { aberta: true, abre: null, texto: "loja aberta até 18:00" });
 });
 
 Deno.test("madrugada de terça: abre hoje", () => {
@@ -15,7 +15,7 @@ Deno.test("madrugada de terça: abre hoje", () => {
 
 Deno.test("sábado fecha às 17h e pula o domingo fechado", () => {
   assertEquals(situacaoHorario(H, sp("2026-09-26T16:59:00")).aberta, true);
-  assertEquals(situacaoHorario(H, sp("2026-09-26T17:30:00")).texto, "loja fechada; abre segunda às 08:00");
+  assertEquals(situacaoHorario(H, sp("2026-09-26T17:30:00")).abre, "segunda às 08:00");
 });
 
 Deno.test("sexta depois das 18h: abre amanhã, no sábado", () => {
