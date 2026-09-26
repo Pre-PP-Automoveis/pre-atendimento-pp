@@ -1,11 +1,14 @@
 // Edge Function: pre-atendimento
 // Webhook da WhatsApp Cloud API. O lead escreve primeiro (o robô nunca inicia conversa, item 2.3 do contrato),
 // a Claude responde com a ficha da loja, faz a triagem e passa ao vendedor da vez pelo rodízio.
+// O número é compartilhado com o time (coexistência): robô pela API, vendedores pelo WhatsApp Business.
+// Quando alguém escreve ao lead pelo aplicativo, chega o eco da Meta e o robô sai da conversa.
 // Estado em pa_conversas e pa_mensagens; os dois carimbos (robô x primeira ação humana) ficam separados.
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { lerOrigem, type Referral } from "./origem.ts";
 import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
+import { foneLegivel, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
@@ -24,8 +27,10 @@ const PRECOS: Record<string, { in: number; out: number }> = {
 };
 /* o lead costuma mandar três mensagens em sequência; o robô espera ele terminar e responde uma vez só */
 const ESPERA_MS = 5_000;
-/* encaminhada e sem mensagem nova por esse tempo, a próxima abre outro atendimento (e outro aviso do 8.5) */
+/* sem mensagem nova por esse tempo, a próxima abre outro atendimento (e outro aviso do 8.5). Com vendedor já
+   na conversa o prazo é maior: negociação de carro pode ficar dias parada e não deve voltar para o robô. */
 const REABRE_MS = 7 * 24 * 3600 * 1000;
+const REABRE_COM_HUMANO_MS = 30 * 24 * 3600 * 1000;
 /* intervalo mínimo entre dois lembretes de "já está com o vendedor" para o mesmo lead */
 const LEMBRETE_MS = 30 * 60 * 1000;
 const AVISO_PADRAO = (nome: string) =>
@@ -40,7 +45,7 @@ type Linha = Record<string, any>;
 /* ===== ferramenta: a única ação que o robô toma no mundo ===== */
 const ENCAMINHAR: Anthropic.Tool = {
   name: "encaminhar_ao_vendedor",
-  description: "Passa o atendimento ao vendedor da vez, pelo rodízio da loja, com o resumo e o contato do lead. Depois disso você não responde mais este lead: escreva só a mensagem de despedida.",
+  description: "Passa o atendimento ao time de vendas: o vendedor da vez recebe o resumo e continua a conversa neste mesmo número. Depois disso você não responde mais este lead: escreva só a mensagem de despedida.",
   strict: true,
   input_schema: {
     type: "object",
@@ -88,13 +93,14 @@ Deno.serve(async (req) => {
     }), { headers: { "Content-Type": "application/json" } });
   }
 
-  /* cron do banco (pg_cron + pg_net), a cada 5 minutos: avisa os vendedores da fila das lojas que abriram */
+  /* cron do banco (pg_cron + pg_net), a cada minuto: despacha a fila da noite e repassa quem ficou sem resposta */
   const cron = req.headers.get("x-cron-secret");
   if (cron !== null) {
     const { data: ok } = await admin.rpc("pa_confere_cron", { segredo: cron });
     if (ok !== true) return new Response("forbidden", { status: 403 });
     const despachados = await despacharFila();
-    return new Response(JSON.stringify({ despachados }), { headers: { "Content-Type": "application/json" } });
+    const repasse = await repassar();
+    return new Response(JSON.stringify({ despachados, ...repasse }), { headers: { "Content-Type": "application/json" } });
   }
 
   const corpo = await req.text();
@@ -109,14 +115,19 @@ Deno.serve(async (req) => {
 async function processarPayload(payload: Linha) {
   for (const entry of payload?.entry ?? []) {
     for (const change of entry?.changes ?? []) {
-      if (change?.field !== "messages") continue;
-      const v = change.value ?? {};
+      const v = change?.value ?? {};
+      const mensagens = change?.field === "messages" ? v.messages ?? [] : [];
+      const ecos = change?.field === "smb_message_echoes" ? v.message_echoes ?? [] : [];
       const phoneNumberId = v.metadata?.phone_number_id;
-      if (!phoneNumberId || !v.messages?.length) continue; // status de entrega e leitura: ignorados
+      if (!phoneNumberId || !(mensagens.length || ecos.length)) continue; // status de entrega e leitura: ignorados
       const { data: loja } = await admin.from("pa_lojas").select("*").eq("phone_number_id", phoneNumberId).eq("ativo", true).maybeSingle();
       if (!loja) { console.warn("número sem loja ativa", phoneNumberId); continue; }
+      /* eco primeiro: se o vendedor escreveu no mesmo lote em que o lead, o robô já precisa saber que saiu */
+      for (const eco of ecos) {
+        await tratarEco(loja, eco).catch((e) => console.error("eco", eco.id, e));
+      }
       const nomes = Object.fromEntries((v.contacts ?? []).map((c: Linha) => [c.wa_id, c.profile?.name]));
-      for (const msg of v.messages) {
+      for (const msg of mensagens) {
         await tratarMensagem(loja, msg, nomes[msg.from] ?? null).catch((e) => console.error("mensagem", msg.id, e));
       }
     }
@@ -139,18 +150,28 @@ function textoDe(msg: Linha): string {
   }
 }
 
+/* Alguém do time escreveu ao lead pelo WhatsApp Business. É a primeira ação humana, e o robô sai da conversa. */
+async function tratarEco(loja: Linha, eco: Linha) {
+  if (eco.type === "revoke" || eco.type === "edit") return; // apagar ou editar não é atender
+  const { data: conversa } = await admin.from("pa_conversas").select("*").eq("loja_id", loja.id).eq("lead_wa", eco.to).neq("estado", "encerrada").maybeSingle();
+  if (!conversa) return; // conversa que o time começou por conta própria: não é lead do pré-atendimento
+  const { error: dup } = await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "vendedor", tipo: eco.type, texto: textoDe(eco), wa_id: eco.id });
+  if (dup) { if (dup.code === "23505") return; throw dup; }
+  const agora = new Date().toISOString();
+  const assumiu = conversa.estado === "robo" || conversa.estado === "fila";
+  await admin.from("pa_conversas").update({
+    ultima_msg_em: agora,
+    /* entrou antes do robô encaminhar (ou de madrugada, com o lead na fila): a conversa passa a ser do time */
+    ...(assumiu ? { estado: "encaminhada", encaminhado_em: conversa.encaminhado_em ?? agora } : {}),
+  }).eq("id", conversa.id);
+  await admin.from("pa_conversas").update({ primeira_acao_humana_em: agora }).eq("id", conversa.id).is("primeira_acao_humana_em", null);
+  if (assumiu) await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema", texto: "o time assumiu pelo aplicativo antes do encaminhamento" });
+}
+
 async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null) {
-  /* vendedor tocando em "Assumi" no aviso: é o carimbo da primeira ação humana */
-  const { data: vendedor } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id).eq("whatsapp", msg.from).maybeSingle();
-  if (vendedor) {
-    const payload: string = msg.button?.payload ?? msg.interactive?.button_reply?.id ?? "";
-    if (payload.startsWith("assumi:")) {
-      await admin.from("pa_conversas").update({ primeira_acao_humana_em: new Date().toISOString() })
-        .eq("id", payload.slice(7)).is("primeira_acao_humana_em", null);
-      await enviarTexto(loja.phone_number_id, msg.from, "Anotado, o lead está com você.").catch(() => undefined);
-    }
-    return;
-  }
+  /* vendedor escrevendo do celular pessoal para o número da loja: não é lead */
+  const { data: vendedor } = await admin.from("pa_vendedores").select("id").eq("loja_id", loja.id).eq("whatsapp", msg.from).maybeSingle();
+  if (vendedor) return;
 
   const texto = textoDe(msg);
   const conversa = await abrirConversa(loja, msg, texto, nomePerfil);
@@ -160,7 +181,9 @@ async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null
   await admin.from("pa_conversas").update({ ultima_msg_em: new Date().toISOString(), ...(nomePerfil ? { lead_nome: nomePerfil } : {}) }).eq("id", conversa.id);
   await marcarLida(loja.phone_number_id, msg.id);
 
-  if (conversa.estado === "encaminhada" || conversa.estado === "fila") return lembrarVendedor(loja, conversa);
+  /* com o time já escrevendo, o robô fica quieto: a conversa é deles */
+  if (conversa.primeira_acao_humana_em) return;
+  if (conversa.estado === "encaminhada" || conversa.estado === "fila") return lembrarLead(loja, conversa);
 
   /* espera o lead terminar de digitar; se chegou mensagem mais nova, quem responde é o processamento dela */
   await dormir(ESPERA_MS);
@@ -174,7 +197,7 @@ async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null
 async function abrirConversa(loja: Linha, msg: Linha, texto: string, nomePerfil: string | null): Promise<Linha> {
   const { data: aberta } = await admin.from("pa_conversas").select("*").eq("loja_id", loja.id).eq("lead_wa", msg.from).neq("estado", "encerrada").maybeSingle();
   if (aberta) {
-    const parada = Date.now() - new Date(aberta.ultima_msg_em).getTime() > REABRE_MS;
+    const parada = Date.now() - new Date(aberta.ultima_msg_em).getTime() > (aberta.primeira_acao_humana_em ? REABRE_COM_HUMANO_MS : REABRE_MS);
     if (!(aberta.estado === "encaminhada" && parada)) return aberta;
     await admin.from("pa_conversas").update({ estado: "encerrada" }).eq("id", aberta.id);
   }
@@ -198,20 +221,15 @@ async function abrirConversa(loja: Linha, msg: Linha, texto: string, nomePerfil:
   return nova!;
 }
 
-async function lembrarVendedor(loja: Linha, conversa: Linha) {
+/* o lead voltou a escrever antes de alguém do time responder: um lembrete curto, no máximo a cada 30 minutos */
+async function lembrarLead(loja: Linha, conversa: Linha) {
   const { data: ultimoRobo } = await admin.from("pa_mensagens").select("criado_em").eq("conversa_id", conversa.id).eq("autor", "robo")
     .order("id", { ascending: false }).limit(1).maybeSingle();
   if (ultimoRobo && Date.now() - new Date(ultimoRobo.criado_em).getTime() < LEMBRETE_MS) return;
-  const { data: vend } = conversa.vendedor_id
-    ? await admin.from("pa_vendedores").select("nome").eq("id", conversa.vendedor_id).maybeSingle()
-    : { data: null };
-  const quem = primeiroNome(vend?.nome);
   const abre = situacaoHorario(loja.horario ?? {}).abre;
   const texto = conversa.estado === "fila"
-    ? `Seu atendimento já está anotado. Um vendedor te chama assim que a loja abrir${abre ? `, ${abre}` : ""}.`
-    : quem
-    ? `Seu atendimento já está com o ${quem}, ele te chama pelo WhatsApp dele. Se preferir, pode falar direto com ele.`
-    : "Seu atendimento já está com o time de vendas, alguém te chama em instantes.";
+    ? `Sua mensagem ficou anotada. Um vendedor te responde aqui mesmo assim que a loja abrir${abre ? `, ${abre}` : ""}.`
+    : "Sua mensagem ficou anotada. Um vendedor já vai te responder aqui mesmo.";
   await enviarTexto(loja.phone_number_id, conversa.lead_wa, texto);
   await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "robo", texto });
 }
@@ -279,9 +297,9 @@ async function responder(loja: Linha, conversaId: string) {
       messages.push({ role: "user", content: [{
         type: "tool_result", tool_use_id: chamada.id, is_error: !resultado.ok,
         content: resultado.fila
-          ? `A loja está fechada. O atendimento ficou anotado e o vendedor da vez recebe o resumo quando a loja abrir, ${resultado.abre ?? "no próximo horário de funcionamento"}. Diga isso ao lead e despeça-se.`
+          ? `A loja está fechada. O atendimento ficou anotado e um vendedor responde aqui mesmo, neste número, quando a loja abrir, ${resultado.abre ?? "no próximo horário de funcionamento"}. Diga isso ao lead e despeça-se.`
           : resultado.ok
-            ? `Encaminhado para ${resultado.vendedor}. Escreva só a despedida.`
+            ? "O vendedor da vez recebeu o resumo e continua a conversa aqui mesmo, neste número. Escreva só a despedida, sem citar nome de vendedor."
             : `Não foi possível avisar um vendedor agora (${resultado.erro}). Diga que o time de vendas vai retomar a conversa e despeça-se.`,
       }] });
       textos.length = 0; // o que veio antes da chamada era preâmbulo; vale a despedida
@@ -296,13 +314,16 @@ async function responder(loja: Linha, conversaId: string) {
         resumo: "O robô ficou indisponível no meio do atendimento; retome a conversa do começo." });
     }
     textos.push(encaminhado.fila
-      ? `Recebi sua mensagem. Um vendedor te atende assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`
-      : "Recebi sua mensagem. Uma pessoa do nosso time de vendas já vai te responder.");
+      ? `Recebi sua mensagem. Um vendedor te responde aqui mesmo assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`
+      : "Recebi sua mensagem. Um vendedor já vai te responder aqui mesmo.");
   }
 
-  if (!textos.length && encaminhado?.fila) textos.push(`Anotei tudo. Um vendedor te chama assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`);
-  else if (!textos.length && encaminhado?.vendedor) textos.push(`Passei tudo para o ${encaminhado.vendedor}, ele te chama em instantes.`);
+  if (!textos.length && encaminhado?.fila) textos.push(`Anotei tudo. Um vendedor te responde aqui mesmo assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`);
+  else if (!textos.length && encaminhado) textos.push("Anotei tudo. Um vendedor já vai continuar a conversa aqui mesmo.");
   if (!textos.length) return;
+  /* o time pode ter entrado pelo aplicativo enquanto a Claude pensava: aí a vez é deles, e o robô não fala por cima */
+  const { data: agoraConversa } = await admin.from("pa_conversas").select("primeira_acao_humana_em").eq("id", conversaId).single();
+  if (agoraConversa?.primeira_acao_humana_em) return;
   let texto = textos.join("\n\n");
   if (primeiroTurno) texto += `\n\n${loja.aviso_inicial || AVISO_PADRAO(loja.nome)}`;
 
@@ -325,7 +346,8 @@ async function encaminhar(loja: Linha, conversa: Linha, e: Encaminhamento): Prom
   return avisarVendedor(loja, { ...conversa, resumo: e });
 }
 
-/* chamado pelo cron: despacha a fila de cada loja ativa que já abriu, na ordem em que os leads chegaram */
+/* cron: despacha a fila de cada loja ativa que já abriu, na ordem em que os leads chegaram.
+   Quem falhou antes (modelo da Meta fora, nenhum vendedor ativo) também está na fila e é tentado de novo. */
 async function despacharFila() {
   const { data: lojas } = await admin.from("pa_lojas").select("*").eq("ativo", true);
   let total = 0;
@@ -341,34 +363,80 @@ async function despacharFila() {
   return total;
 }
 
+/* cron: vendedor da vez não respondeu no prazo, o lead passa para o próximo; acabado o rodízio, avisa o gerente.
+   Só com a loja aberta: aviso das 17h50 sem resposta repassa na abertura seguinte. */
+async function repassar() {
+  const { data: lojas } = await admin.from("pa_lojas").select("*").eq("ativo", true);
+  let repassados = 0, escalados = 0;
+  for (const loja of lojas ?? []) {
+    if (!situacaoHorario(loja.horario ?? {}).aberta) continue;
+    const { data: pendentes } = await admin.from("pa_conversas").select("*").eq("loja_id", loja.id)
+      .eq("estado", "encaminhada").is("primeira_acao_humana_em", null).is("escalado_em", null).not("avisado_em", "is", null);
+    const { data: equipe } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id);
+    for (const conversa of pendentes ?? []) {
+      if (!venceuPrazo(conversa, loja.prazo_repasse_min ?? 60)) continue;
+      if (proximoVendedor(equipe ?? [], conversa.tentativas ?? [])) {
+        const r = await avisarVendedor(loja, conversa).catch((err) => ({ ok: false, erro: String(err) }));
+        if (r.ok) repassados++; else console.error("repasse", conversa.id, r.erro);
+      } else if (await escalarGerente(loja, conversa)) escalados++;
+    }
+  }
+  return { repassados, escalados };
+}
+
 /* ===== rodízio sequencial: recebe quem está há mais tempo sem lead, como a distribuição do BNDV ===== */
 async function avisarVendedor(loja: Linha, conversa: Linha): Promise<Resultado> {
   const e = conversa.resumo as Encaminhamento;
-  const veioDaFila = conversa.estado === "fila";
+  const tentativas: string[] = conversa.tentativas ?? [];
+  const repasse = tentativas.length > 0;
   const agora = new Date().toISOString();
-  const marcar = (vendedorId: string | null, erro?: string) =>
-    admin.from("pa_conversas").update({
-      /* falha na fila fica na fila, e o cron tenta de novo em 5 minutos */
-      estado: erro && veioDaFila ? "fila" : "encaminhada",
-      vendedor_id: vendedorId, encaminhado_em: erro ? null : agora, resumo: { ...e, ...(erro ? { erro } : {}) },
-    }).eq("id", conversa.id);
+  /* sem aviso, o lead volta para a fila e o cron tenta de novo no minuto seguinte, com a loja aberta */
+  const falhar = async (erro: string): Promise<Resultado> => {
+    if (!repasse) await admin.from("pa_conversas").update({ estado: "fila", fila_em: conversa.fila_em ?? agora, resumo: { ...e, erro } }).eq("id", conversa.id);
+    return { ok: false, vendedor: null, erro };
+  };
+  if (!loja.template_aviso_vendedor) return falhar("modelo de aviso não configurado");
+  const { data: equipe } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id);
+  const vend = proximoVendedor(equipe ?? [], tentativas);
+  if (!vend) return falhar("nenhum vendedor ativo");
 
-  const { data: vend } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id).eq("ativo", true)
-    .order("ultimo_lead_em", { ascending: true, nullsFirst: true }).order("ordem").limit(1).maybeSingle();
-  if (!vend) { await marcar(null, "nenhum vendedor ativo"); return { ok: false, vendedor: null, erro: "nenhum vendedor ativo" }; }
-  if (!loja.template_aviso_vendedor) { await marcar(null, "modelo de aviso não configurado"); return { ok: false, vendedor: null, erro: "modelo de aviso não configurado" }; }
-
-  const detalhe = [`Troca: ${e.troca}`, `Pagamento: ${e.pagamento}`, `Prazo: ${e.prazo}`, `Pendências: ${e.pendencias}`, e.resumo].join(" · ");
   try {
-    /* modelo na Meta: "Novo lead: {{1}}, wa.me/{{2}}. Carro: {{3}}. Origem: {{4}}. {{5}}" + botão "Assumi" */
-    await enviarAvisoVendedor(loja.phone_number_id, vend.whatsapp, loja.template_aviso_vendedor,
-      [conversa.lead_nome || "cliente", conversa.lead_wa, e.veiculo, conversa.origem, detalhe], `assumi:${conversa.id}`);
+    await enviarAvisoVendedor(loja.phone_number_id, vend.whatsapp, loja.template_aviso_vendedor, paramsAviso(conversa, e,
+      repasse ? `Repassado: ninguém respondeu em ${loja.prazo_repasse_min ?? 60} min.` : ""));
   } catch (err) {
-    await marcar(null, String(err));
-    return { ok: false, vendedor: null, erro: "falha ao avisar o vendedor" };
+    return falhar(String(err));
   }
   await admin.from("pa_vendedores").update({ ultimo_lead_em: agora }).eq("id", vend.id);
-  await marcar(vend.id);
-  await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema", texto: `encaminhado para ${vend.nome} (${e.motivo})${veioDaFila ? ", vindo da fila" : ""}` });
+  await admin.from("pa_conversas").update({
+    estado: "encaminhada", vendedor_id: vend.id, avisado_em: agora, encaminhado_em: conversa.encaminhado_em ?? agora,
+    tentativas: [...tentativas, vend.id], resumo: e,
+  }).eq("id", conversa.id);
+  await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema",
+    texto: repasse ? `repassado para ${vend.nome}: sem resposta em ${loja.prazo_repasse_min ?? 60} min` : `encaminhado para ${vend.nome} (${e.motivo})${conversa.estado === "fila" ? ", vindo da fila" : ""}` });
   return { ok: true, vendedor: primeiroNome(vend.nome) };
+}
+
+async function escalarGerente(loja: Linha, conversa: Linha) {
+  const agora = new Date().toISOString();
+  await admin.from("pa_conversas").update({ escalado_em: agora }).eq("id", conversa.id);
+  if (!loja.gerente_whatsapp || !loja.template_aviso_vendedor) {
+    await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema", texto: "rodízio esgotado sem resposta, e não há gerente cadastrado para avisar" });
+    return false;
+  }
+  try {
+    await enviarAvisoVendedor(loja.phone_number_id, loja.gerente_whatsapp, loja.template_aviso_vendedor,
+      paramsAviso(conversa, conversa.resumo as Encaminhamento, "Ninguém do rodízio respondeu este lead."));
+  } catch (err) {
+    console.error("gerente", conversa.id, err);
+    return false;
+  }
+  await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema", texto: `rodízio esgotado: gerente ${loja.gerente_nome ?? ""} avisado`.trim() });
+  return true;
+}
+
+/* modelo na Meta: "Lead para você: {{1}}, {{2}}. Carro: {{3}}. Origem: {{4}}. {{5}} Responda pelo WhatsApp da loja." */
+function paramsAviso(conversa: Linha, e: Encaminhamento, prefixo: string) {
+  const detalhe = [prefixo, `Troca: ${e.troca}`, `Pagamento: ${e.pagamento}`, `Prazo: ${e.prazo}`, `Pendências: ${e.pendencias}`, e.resumo]
+    .filter(Boolean).join(" · ");
+  return [conversa.lead_nome || "cliente", foneLegivel(conversa.lead_wa), e.veiculo, conversa.origem, detalhe];
 }

@@ -40,18 +40,13 @@ export const marcarLida = (phoneNumberId: string, waId: string) =>
 export const paramModelo = (s: string, max = 900) =>
   (s || "-").replace(/[\r\n\t]+/g, " · ").replace(/ {2,}/g, " ").trim().slice(0, max) || "-";
 
-/* Aviso ao vendedor. Mensagem iniciada pela empresa fora da janela de 24h só sai por modelo aprovado.
-   O botão de resposta rápida devolve o payload "assumi:<conversa>", que é o carimbo da primeira ação humana. */
-export const enviarAvisoVendedor = (
-  phoneNumberId: string, para: string, modelo: string, params: string[], payloadBotao: string,
-) =>
+/* Aviso ao vendedor da vez, no WhatsApp pessoal dele. Mensagem iniciada pela empresa fora da janela de 24h só sai
+   por modelo aprovado. Ele responde ao lead pelo aplicativo da loja, e é esse eco que marca a primeira ação humana. */
+export const enviarAvisoVendedor = (phoneNumberId: string, para: string, modelo: string, params: string[]) =>
   post(phoneNumberId, {
     to: para, type: "template",
     template: {
       name: modelo, language: { code: "pt_BR" },
-      components: [
-        { type: "body", parameters: params.map((p) => ({ type: "text", text: paramModelo(p) })) },
-        { type: "button", sub_type: "quick_reply", index: "0", parameters: [{ type: "payload", payload: payloadBotao }] },
-      ],
+      components: [{ type: "body", parameters: params.map((p) => ({ type: "text", text: paramModelo(p) })) }],
     },
   });

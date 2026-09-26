@@ -7,18 +7,26 @@ As tabelas aceitam mais de uma loja (`pa_lojas`), mas este repositório e este p
 
 ## Como funciona
 
+O número da loja é **compartilhado**: os vendedores atendem pelo WhatsApp Business, e o robô usa o mesmo número
+pela API (coexistência da Meta). Ninguém precisa trocar de aplicativo.
+
 1. O lead escreve no número da loja (portal, anúncio do Meta ou contato direto). O robô nunca inicia conversa.
 2. A origem sai sozinha: `referral` do anúncio do Meta ou o link do portal na mensagem pronta (`origem.ts`).
    O id do anúncio amarra a conversa à ficha do veículo em `pa_veiculos`.
 3. A função espera 5 segundos para o lead terminar de digitar e responde uma vez só.
 4. A Claude responde com a ficha, faz as três perguntas (troca, pagamento, prazo) e chama `encaminhar_ao_vendedor`.
-5. O vendedor da vez (rodízio sequencial) recebe o modelo aprovado com o resumo e o `wa.me` do lead.
-   Ele toca em **Assumi**, e esse toque é o carimbo `primeira_acao_humana_em`.
-6. Se o lead voltar a escrever no número da loja, o robô lembra quem está com o atendimento.
+5. O vendedor da vez (rodízio sequencial, `rodizio.ts`) recebe no WhatsApp pessoal o modelo aprovado com o resumo
+   e o telefone do lead, e responde pelo aplicativo da loja, na mesma conversa.
+6. **Quando qualquer pessoa do time escreve ao lead pelo aplicativo**, a Meta manda o eco (`smb_message_echoes`):
+   o robô sai da conversa e o eco vira o carimbo `primeira_acao_humana_em`. Vale também se o time entrar antes
+   do robô encaminhar.
+7. **Repasse, como no BNDV:** se ninguém escrever ao lead em `pa_lojas.prazo_repasse_min` (60 por padrão), o cron
+   avisa o próximo do rodízio. Quando todos já foram avisados, avisa o gerente (`gerente_whatsapp`) uma vez.
+   O repasse só corre com a loja aberta.
 
 **Fora do horário** o robô atende igual: responde, tira dúvida com a ficha e faz a triagem inteira. No encaminhamento,
 em vez de avisar o vendedor, o atendimento entra na `fila` e o lead ouve que um vendedor o atende quando a loja abrir,
-com dia e hora ("amanhã às 08:00"). A cada 5 minutos o `pg_cron` chama a função, que avisa os vendedores da fila das
+com dia e hora ("amanhã às 08:00"). A cada minuto o `pg_cron` chama a função, que avisa os vendedores da fila das
 lojas que já abriram, pelo mesmo rodízio. O `encaminhado_em` marca esse aviso, então o SLA conta do horário comercial.
 
 A primeira resposta de cada atendimento leva o aviso do item 8.5 do contrato em texto fixo (`pa_lojas.aviso_inicial`,
@@ -53,18 +61,20 @@ O segredo do cron não é configurado à mão: a migração `20260924235000_vaul
 no Vault e grava o endereço da função. O cron manda o segredo no cabeçalho e a função confere com `pa_confere_cron`.
 
 URL do webhook para o painel da Meta: `https://qdzuwnqejtjbtcysteip.supabase.co/functions/v1/pre-atendimento`,
-assinando o campo `messages`.
+assinando os campos **`messages`** e **`smb_message_echoes`**. Sem o segundo, o robô não percebe o vendedor e fala por cima.
+
+A coexistência (número no WhatsApp Business e na API ao mesmo tempo) só é ligada pelo cadastro incorporado
+(Embedded Signup) de um Tech Provider ou parceiro oficial da Meta. O número precisa de 7 dias de uso no aplicativo
+antes, e o aplicativo precisa ser aberto pelo menos a cada 14 dias.
 
 ## Modelo de aviso ao vendedor (enviar para aprovação na Meta)
 
-Categoria **Utilidade**, idioma **pt_BR**, nome sugerido `novo_lead_pre_atendimento`:
+Categoria **Utilidade**, idioma **pt_BR**, nome sugerido `novo_lead_pre_atendimento`, sem botão:
 
-> Novo lead do pré-atendimento: {{1}}, wa.me/{{2}}. Carro: {{3}}. Origem: {{4}}. {{5}}
+> Lead para você: {{1}}, {{2}}. Carro: {{3}}. Origem: {{4}}. {{5}} Responda pelo WhatsApp da loja.
 
-Botão de resposta rápida: **Assumi**.
-
-Cada aviso é uma mensagem de utilidade iniciada pela empresa e tem tarifa da Meta. Pelo item 2.5, IV do contrato
-essa tarifa é da loja, não da Moza.
+O mesmo modelo avisa o gerente quando o rodízio acaba sem resposta. Cada aviso é uma mensagem de utilidade iniciada
+pela empresa e tem tarifa da Meta. Pelo item 2.5, IV do contrato essa tarifa é da loja, não da Moza.
 
 ## Cadastro da loja
 
@@ -72,7 +82,8 @@ A migração `20260924220000_loja_pp.sql` cria a PP inativa, com endereço e hor
 (segunda a sexta, 8h às 18h; sábado, 8h às 17h; domingo fechado). Para ligar:
 
 ```sql
-update pa_lojas set phone_number_id = '[DEFINIR: id do número novo na Cloud API]', ativo = true
+update pa_lojas set phone_number_id = '[DEFINIR: id do número novo na Cloud API]',
+  gerente_nome = '[DEFINIR]', gerente_whatsapp = '55119...', prazo_repasse_min = 60, ativo = true
 where slug = 'pp-automoveis';
 
 insert into pa_vendedores (loja_id, nome, whatsapp, ordem)
@@ -96,7 +107,6 @@ deno task check
 
 ## Fora da fase 1
 
-- Escalonamento para o gerente quando ninguém toca em Assumi no prazo (o cron já existe, falta a regra).
 - Tela no painel da Moza lendo `pa_conversas` e `pa_volume_mensal`.
 - Registro automático no BNDV, que não tem API pública (item 3.5).
 - Transcrição de áudio.
