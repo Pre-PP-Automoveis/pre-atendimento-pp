@@ -21,6 +21,14 @@ export function venceuPrazo(
     agora - new Date(c.avisado_em).getTime() >= prazoMin * 60_000;
 }
 
+/* o lead fica no máximo prazoMin com o robô, contando da primeira mensagem dele */
+export function passouDoRobo(
+  c: { estado: string; primeira_acao_humana_em: string | null; iniciada_em: string },
+  prazoMin: number, agora = Date.now(),
+) {
+  return c.estado === "robo" && !c.primeira_acao_humana_em && agora - new Date(c.iniciada_em).getTime() >= prazoMin * 60_000;
+}
+
 /* 5511987654321 vira (11) 98765-4321, para o vendedor achar a conversa no aplicativo */
 export function foneLegivel(wa: string) {
   const d = wa.replace(/\D/g, "");

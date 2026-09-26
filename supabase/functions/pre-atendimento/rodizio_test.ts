@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { foneLegivel, proximoVendedor, venceuPrazo } from "./rodizio.ts";
+import { foneLegivel, passouDoRobo, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 
 const equipe = [
   { id: "paulo", ativo: true, ordem: 1, ultimo_lead_em: "2026-09-26T10:00:00Z" },
@@ -24,10 +24,18 @@ Deno.test("todos avisados: acabou o rodízio, é hora do gerente", () => {
 const avisado = "2026-09-26T13:00:00Z";
 const t = (min: number) => new Date(avisado).getTime() + min * 60_000;
 
-Deno.test("prazo de 60 minutos, como o BNDV", () => {
+Deno.test("repasse em 15 minutos sem resposta", () => {
   const c = { estado: "encaminhada", primeira_acao_humana_em: null, avisado_em: avisado };
-  assertEquals(venceuPrazo(c, 60, t(59)), false);
-  assertEquals(venceuPrazo(c, 60, t(60)), true);
+  assertEquals(venceuPrazo(c, 15, t(14)), false);
+  assertEquals(venceuPrazo(c, 15, t(15)), true);
+});
+
+Deno.test("lead fica no máximo 15 minutos com o robô", () => {
+  const c = { estado: "robo", primeira_acao_humana_em: null, iniciada_em: avisado };
+  assertEquals(passouDoRobo(c, 15, t(14)), false);
+  assertEquals(passouDoRobo(c, 15, t(15)), true);
+  assertEquals(passouDoRobo({ ...c, estado: "encaminhada" }, 15, t(30)), false);
+  assertEquals(passouDoRobo({ ...c, primeira_acao_humana_em: avisado }, 15, t(30)), false);
 });
 
 Deno.test("alguém escreveu pelo aplicativo: não repassa", () => {

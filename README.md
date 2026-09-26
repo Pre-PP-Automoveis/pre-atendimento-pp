@@ -20,7 +20,9 @@ pela API (coexistência da Meta). Ninguém precisa trocar de aplicativo.
 6. **Quando qualquer pessoa do time escreve ao lead pelo aplicativo**, a Meta manda o eco (`smb_message_echoes`):
    o robô sai da conversa e o eco vira o carimbo `primeira_acao_humana_em`. Vale também se o time entrar antes
    do robô encaminhar.
-7. **Repasse, como no BNDV:** se ninguém escrever ao lead em `pa_lojas.prazo_repasse_min` (60 por padrão), o cron
+7. **No máximo 15 minutos com o robô** (`pa_lojas.prazo_robo_min`): se a triagem não terminar nesse tempo (o lead
+   parou de responder, ou a conversa se alongou), o cron passa a conversa ao consultor da vez com o que tiver.
+8. **Repasse, como no BNDV:** se ninguém escrever ao lead em `pa_lojas.prazo_repasse_min` (15 minutos), o cron
    avisa o próximo do rodízio. Quando todos já foram avisados, avisa o gerente (`gerente_whatsapp`) uma vez.
    O repasse só corre com a loja aberta.
 
@@ -83,7 +85,7 @@ A migração `20260924220000_loja_pp.sql` cria a PP inativa, com endereço e hor
 
 ```sql
 update pa_lojas set phone_number_id = '[DEFINIR: id do número novo na Cloud API]',
-  gerente_nome = '[DEFINIR]', gerente_whatsapp = '55119...', prazo_repasse_min = 60, ativo = true
+  gerente_nome = '[DEFINIR]', gerente_whatsapp = '55119...', ativo = true
 where slug = 'pp-automoveis';
 
 insert into pa_vendedores (loja_id, nome, whatsapp, ordem)

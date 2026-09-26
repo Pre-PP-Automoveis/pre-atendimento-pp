@@ -8,7 +8,7 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { lerOrigem, type Referral } from "./origem.ts";
 import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
-import { foneLegivel, proximoVendedor, venceuPrazo } from "./rodizio.ts";
+import { foneLegivel, passouDoRobo, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
@@ -98,9 +98,10 @@ Deno.serve(async (req) => {
   if (cron !== null) {
     const { data: ok } = await admin.rpc("pa_confere_cron", { segredo: cron });
     if (ok !== true) return new Response("forbidden", { status: 403 });
+    const tiradosDoRobo = await tirarDoRobo();
     const despachados = await despacharFila();
     const repasse = await repassar();
-    return new Response(JSON.stringify({ despachados, ...repasse }), { headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ tiradosDoRobo, despachados, ...repasse }), { headers: { "Content-Type": "application/json" } });
   }
 
   const corpo = await req.text();
@@ -228,8 +229,8 @@ async function lembrarLead(loja: Linha, conversa: Linha) {
   if (ultimoRobo && Date.now() - new Date(ultimoRobo.criado_em).getTime() < LEMBRETE_MS) return;
   const abre = situacaoHorario(loja.horario ?? {}).abre;
   const texto = conversa.estado === "fila"
-    ? `Sua mensagem ficou anotada. Um vendedor te responde aqui mesmo assim que a loja abrir${abre ? `, ${abre}` : ""}.`
-    : "Sua mensagem ficou anotada. Um vendedor já vai te responder aqui mesmo.";
+    ? `Sua mensagem ficou anotada. Um consultor continua a conversa aqui mesmo assim que a loja abrir${abre ? `, ${abre}` : ""}.`
+    : "Sua mensagem ficou anotada. Um consultor continua a conversa aqui mesmo em instantes.";
   await enviarTexto(loja.phone_number_id, conversa.lead_wa, texto);
   await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "robo", texto });
 }
@@ -291,16 +292,19 @@ async function responder(loja: Linha, conversaId: string) {
       const chamada = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
       if (resp.stop_reason !== "tool_use" || !chamada) break;
 
+      /* o cron dos 15 minutos ou o time podem ter levado a conversa enquanto a Claude pensava */
+      const { data: estadoAgora } = await admin.from("pa_conversas").select("estado").eq("id", conversaId).single();
+      if (estadoAgora?.estado !== "robo") return;
       const resultado = await encaminhar(loja, conversa, chamada.input as Encaminhamento);
       encaminhado = resultado;
       messages.push({ role: "assistant", content: resp.content });
       messages.push({ role: "user", content: [{
         type: "tool_result", tool_use_id: chamada.id, is_error: !resultado.ok,
         content: resultado.fila
-          ? `A loja está fechada. O atendimento ficou anotado e um vendedor responde aqui mesmo, neste número, quando a loja abrir, ${resultado.abre ?? "no próximo horário de funcionamento"}. Diga isso ao lead e despeça-se.`
+          ? `A loja está fechada. O atendimento ficou anotado e um consultor continua a conversa aqui mesmo, neste número, quando a loja abrir, ${resultado.abre ?? "no próximo horário de funcionamento"}. Diga isso ao lead e despeça-se.`
           : resultado.ok
-            ? "O vendedor da vez recebeu o resumo e continua a conversa aqui mesmo, neste número. Escreva só a despedida, sem citar nome de vendedor."
-            : `Não foi possível avisar um vendedor agora (${resultado.erro}). Diga que o time de vendas vai retomar a conversa e despeça-se.`,
+            ? "O consultor da vez recebeu o resumo e continua a conversa aqui mesmo, neste número. Escreva só a despedida, sem citar nome."
+            : `Não foi possível avisar o consultor da vez agora (${resultado.erro}). Diga que um consultor continua a conversa aqui mesmo em instantes e despeça-se.`,
       }] });
       textos.length = 0; // o que veio antes da chamada era preâmbulo; vale a despedida
     }
@@ -314,16 +318,17 @@ async function responder(loja: Linha, conversaId: string) {
         resumo: "O robô ficou indisponível no meio do atendimento; retome a conversa do começo." });
     }
     textos.push(encaminhado.fila
-      ? `Recebi sua mensagem. Um vendedor te responde aqui mesmo assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`
-      : "Recebi sua mensagem. Um vendedor já vai te responder aqui mesmo.");
+      ? `Recebi sua mensagem. Um consultor continua a conversa aqui mesmo assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`
+      : "Recebi sua mensagem. Um consultor continua a conversa aqui mesmo em instantes.");
   }
 
-  if (!textos.length && encaminhado?.fila) textos.push(`Anotei tudo. Um vendedor te responde aqui mesmo assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`);
-  else if (!textos.length && encaminhado) textos.push("Anotei tudo. Um vendedor já vai continuar a conversa aqui mesmo.");
+  if (!textos.length && encaminhado?.fila) textos.push(`Anotei tudo. Um consultor continua a conversa aqui mesmo assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`);
+  else if (!textos.length && encaminhado) textos.push("Anotei tudo. Um consultor continua a conversa aqui mesmo em instantes.");
   if (!textos.length) return;
   /* o time pode ter entrado pelo aplicativo enquanto a Claude pensava: aí a vez é deles, e o robô não fala por cima */
-  const { data: agoraConversa } = await admin.from("pa_conversas").select("primeira_acao_humana_em").eq("id", conversaId).single();
+  const { data: agoraConversa } = await admin.from("pa_conversas").select("estado, primeira_acao_humana_em").eq("id", conversaId).single();
   if (agoraConversa?.primeira_acao_humana_em) return;
+  if (!encaminhado && agoraConversa?.estado !== "robo") return; // o cron dos 15 minutos encaminhou no meio
   let texto = textos.join("\n\n");
   if (primeiroTurno) texto += `\n\n${loja.aviso_inicial || AVISO_PADRAO(loja.nome)}`;
 
@@ -344,6 +349,26 @@ async function encaminhar(loja: Linha, conversa: Linha, e: Encaminhamento): Prom
     return { ok: true, vendedor: null, fila: true, abre: horario.abre };
   }
   return avisarVendedor(loja, { ...conversa, resumo: e });
+}
+
+/* cron: o lead fica no máximo prazo_robo_min com o robô. Passou disso sem a triagem acabar (o lead parou de
+   responder, ou a conversa se alongou), vai para o consultor da vez com o que tiver; de noite, para a fila. */
+async function tirarDoRobo() {
+  const { data: lojas } = await admin.from("pa_lojas").select("*").eq("ativo", true);
+  let total = 0;
+  for (const loja of lojas ?? []) {
+    const { data: abertas } = await admin.from("pa_conversas").select("*").eq("loja_id", loja.id).eq("estado", "robo").is("primeira_acao_humana_em", null);
+    for (const conversa of abertas ?? []) {
+      if (!passouDoRobo(conversa, loja.prazo_robo_min ?? 15)) continue;
+      const r = await encaminhar(loja, conversa, {
+        motivo: "tempo_esgotado", veiculo: conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
+        troca: "ver na conversa", pagamento: "ver na conversa", prazo: "ver na conversa", pendencias: "ver na conversa",
+        resumo: `Triagem não terminou em ${loja.prazo_robo_min ?? 15} min; a conversa inteira está no WhatsApp da loja.`,
+      }).catch((err) => ({ ok: false, erro: String(err) }) as Resultado);
+      if (r.ok) total++; else console.error("robo", conversa.id, r.erro);
+    }
+  }
+  return total;
 }
 
 /* cron: despacha a fila de cada loja ativa que já abriu, na ordem em que os leads chegaram.
