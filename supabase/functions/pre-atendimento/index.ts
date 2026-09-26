@@ -10,7 +10,7 @@ import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
-const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 /* criado na primeira conversa: sem a chave gravada, o cron e a verificação da Meta continuam de pé */
 let _anthropic: Anthropic | null = null;
 const anthropic = () => (_anthropic ??= new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") }));
@@ -73,8 +73,12 @@ Deno.serve(async (req) => {
   /* checagem de saúde para quem tem a chave de serviço do projeto: testa a chave da Anthropic numa chamada
      que não gasta token e diz quais segredos existem, sem mostrar valor nenhum */
   if (url.searchParams.get("saude") !== null) {
-    const chaveServico = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    if (!chaveServico || req.headers.get("authorization") !== `Bearer ${chaveServico}`) return new Response("forbidden", { status: 403 });
+    /* a chave vale se consegue o que só a chave de serviço consegue: executar pa_confere_cron */
+    const chave = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const { error: negado } = chave
+      ? await createClient(Deno.env.get("SUPABASE_URL")!, chave, { auth: { persistSession: false } }).rpc("pa_confere_cron", { segredo: "-" })
+      : { error: true };
+    if (negado) return new Response("forbidden", { status: 403 });
     let claude = "ok";
     try { await anthropic().models.retrieve("claude-sonnet-5"); } catch (e) { claude = e instanceof Anthropic.APIError ? `erro ${e.status}` : "chave ausente"; }
     const tem = (n: string) => !!Deno.env.get(n);
