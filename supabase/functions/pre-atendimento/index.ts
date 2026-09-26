@@ -70,6 +70,20 @@ Deno.serve(async (req) => {
   }
   if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
 
+  /* checagem de saúde para quem tem a chave de serviço do projeto: testa a chave da Anthropic numa chamada
+     que não gasta token e diz quais segredos existem, sem mostrar valor nenhum */
+  if (url.searchParams.get("saude") !== null) {
+    const chaveServico = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    if (!chaveServico || req.headers.get("authorization") !== `Bearer ${chaveServico}`) return new Response("forbidden", { status: 403 });
+    let claude = "ok";
+    try { await anthropic().models.retrieve("claude-sonnet-5"); } catch (e) { claude = e instanceof Anthropic.APIError ? `erro ${e.status}` : "chave ausente"; }
+    const tem = (n: string) => !!Deno.env.get(n);
+    return new Response(JSON.stringify({
+      anthropic: claude,
+      segredos: { ANTHROPIC_API_KEY: tem("ANTHROPIC_API_KEY"), WHATSAPP_TOKEN: tem("WHATSAPP_TOKEN"), WHATSAPP_APP_SECRET: tem("WHATSAPP_APP_SECRET"), WHATSAPP_VERIFY_TOKEN: tem("WHATSAPP_VERIFY_TOKEN") },
+    }), { headers: { "Content-Type": "application/json" } });
+  }
+
   /* cron do banco (pg_cron + pg_net), a cada 5 minutos: avisa os vendedores da fila das lojas que abriram */
   const cron = req.headers.get("x-cron-secret");
   if (cron !== null) {
