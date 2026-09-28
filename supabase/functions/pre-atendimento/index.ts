@@ -10,6 +10,7 @@ import { lerOrigem, type Referral } from "./origem.ts";
 import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 import { foneLegivel, passouDoRobo, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
+import { ligarLoja } from "./ligacao.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
@@ -19,6 +20,9 @@ let _anthropic: Anthropic | null = null;
 const anthropic = () => (_anthropic ??= new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") }));
 const APP_SECRET = Deno.env.get("WHATSAPP_APP_SECRET") ?? "";
 const VERIFY_TOKEN = Deno.env.get("WHATSAPP_VERIFY_TOKEN") ?? "";
+/* a página do cadastro mora no site da Moza e chama esta função pelo navegador */
+const ORIGEM_CADASTRO = "https://mozabr.com.br";
+const CORS_CADASTRO = { "Access-Control-Allow-Origin": ORIGEM_CADASTRO, "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "content-type", "Vary": "Origin" };
 
 /* USD por token. Cache de 1 hora: escrita a 2x, leitura a 0,1x da entrada. */
 const PRECOS: Record<string, { in: number; out: number }> = {
@@ -73,7 +77,15 @@ Deno.serve(async (req) => {
     const ok = !!VERIFY_TOKEN && url.searchParams.get("hub.mode") === "subscribe" && url.searchParams.get("hub.verify_token") === VERIFY_TOKEN;
     return ok ? new Response(url.searchParams.get("hub.challenge") ?? "") : new Response("forbidden", { status: 403 });
   }
+  if (req.method === "OPTIONS" && url.searchParams.get("ligar") !== null) return new Response(null, { status: 204, headers: CORS_CADASTRO });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
+
+  /* cadastro incorporado concluído na página mozabr.com.br/conectar-whatsapp.html: liga o número da loja */
+  if (url.searchParams.get("ligar") !== null) {
+    const pedido = await req.json().catch(() => ({}));
+    const r = await ligarLoja(admin, pedido).catch((e) => ({ status: 500, corpo: { erro: String(e?.message ?? e) } }));
+    return new Response(JSON.stringify(r.corpo), { status: r.status, headers: { ...CORS_CADASTRO, "Content-Type": "application/json" } });
+  }
 
   /* checagem de saúde para quem tem a chave de serviço do projeto: testa a chave da Anthropic numa chamada
      que não gasta token e diz quais segredos existem, sem mostrar valor nenhum */
@@ -89,7 +101,7 @@ Deno.serve(async (req) => {
     const tem = (n: string) => !!Deno.env.get(n);
     return new Response(JSON.stringify({
       anthropic: claude,
-      segredos: { ANTHROPIC_API_KEY: tem("ANTHROPIC_API_KEY"), WHATSAPP_TOKEN: tem("WHATSAPP_TOKEN"), WHATSAPP_APP_SECRET: tem("WHATSAPP_APP_SECRET"), WHATSAPP_VERIFY_TOKEN: tem("WHATSAPP_VERIFY_TOKEN") },
+      segredos: { ANTHROPIC_API_KEY: tem("ANTHROPIC_API_KEY"), META_APP_ID: tem("META_APP_ID"), WHATSAPP_APP_SECRET: tem("WHATSAPP_APP_SECRET"), WHATSAPP_VERIFY_TOKEN: tem("WHATSAPP_VERIFY_TOKEN") },
     }), { headers: { "Content-Type": "application/json" } });
   }
 

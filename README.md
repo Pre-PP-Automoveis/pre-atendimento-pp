@@ -44,7 +44,7 @@ o script mostra onde gerar e o comando para gravar sem o valor aparecer na tela.
 ## Segredos
 
 ```bash
-scripts/supabase.sh secrets set WHATSAPP_TOKEN=...            # usuário do sistema do Business Manager da Moza
+scripts/supabase.sh secrets set META_APP_ID=...               # app da Moza na Meta (Tech Provider)
 scripts/supabase.sh secrets set WHATSAPP_APP_SECRET=...       # app da Meta, para validar a assinatura do webhook
 scripts/supabase.sh secrets set WHATSAPP_VERIFY_TOKEN=...     # texto qualquer, repetido no painel da Meta
 scripts/supabase.sh secrets set ANTHROPIC_API_KEY=...         # projeto novo: a chave da prospecção não vem junto
@@ -68,6 +68,20 @@ assinando os campos **`messages`** e **`smb_message_echoes`**. Sem o segundo, o 
 A coexistência (número no WhatsApp Business e na API ao mesmo tempo) só é ligada pelo cadastro incorporado
 (Embedded Signup) de um Tech Provider ou parceiro oficial da Meta. O número precisa de 7 dias de uso no aplicativo
 antes, e o aplicativo precisa ser aberto pelo menos a cada 14 dias.
+
+## Ligação da loja (cadastro incorporado)
+
+A Moza é Tech Provider. A loja liga o número pela página `mozabr.com.br/conectar-whatsapp.html?convite=<convite>`
+(no repositório `site-moza`), escolhendo conectar o WhatsApp Business que já usa. O convite é aleatório, de uso
+único, em `pa_lojas.convite_onboarding`. Ao concluir, a função (`ligacao.ts`):
+
+1. troca o código pela credencial da loja e guarda em `pa_credenciais` (sem leitura pública);
+2. grava conta, número e `ligada_em` na loja (que continua com `ativo = false` até o teste com o time);
+3. assina o app da Moza nos webhooks da conta;
+4. pede a sincronização de contatos e histórico, obrigatória em até 24 horas na coexistência;
+5. envia para aprovação o modelo de aviso ao consultor.
+
+Falhou algum passo, a resposta lista as pendências e o convite continua valendo para refazer.
 
 ## Modelo de aviso ao vendedor (enviar para aprovação na Meta)
 

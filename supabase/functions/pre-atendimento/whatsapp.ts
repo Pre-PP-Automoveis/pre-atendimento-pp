@@ -1,9 +1,33 @@
-// WhatsApp Cloud API: assinatura do webhook e envio de mensagens.
-// O token é de usuário do sistema do Business Manager da Moza, com a loja dando acesso de parceiro à conta
-// do WhatsApp dela. Um token atende todas as lojas; o que muda por loja é o phone_number_id.
+// WhatsApp Cloud API: assinatura do webhook, envio de mensagens e a ligação da loja (cadastro incorporado).
+// A Moza é Tech Provider: cada loja, ao se cadastrar, gera uma credencial própria, guardada em pa_credenciais
+// (tabela sem acesso público). WHATSAPP_TOKEN no ambiente fica só como reserva para teste.
+import { createClient } from "npm:@supabase/supabase-js@2";
 
-const GRAPH = `https://graph.facebook.com/${Deno.env.get("WHATSAPP_GRAPH_VERSION") || "v23.0"}`;
-const TOKEN = () => Deno.env.get("WHATSAPP_TOKEN")!;
+export const GRAPH = `https://graph.facebook.com/${Deno.env.get("WHATSAPP_GRAPH_VERSION") || "v25.0"}`;
+const banco = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+const tokens = new Map<string, string>();
+
+async function tokenDo(phoneNumberId: string) {
+  if (tokens.has(phoneNumberId)) return tokens.get(phoneNumberId)!;
+  const { data } = await banco.from("pa_lojas").select("pa_credenciais(token_whatsapp)").eq("phone_number_id", phoneNumberId).maybeSingle();
+  // deno-lint-ignore no-explicit-any
+  const token = (data as any)?.pa_credenciais?.token_whatsapp ?? Deno.env.get("WHATSAPP_TOKEN");
+  if (!token) throw new Error(`sem credencial do WhatsApp para o número ${phoneNumberId}`);
+  tokens.set(phoneNumberId, token);
+  return token;
+}
+
+/* chamada à Graph API com uma credencial explícita (usada na ligação, antes de a loja ter número salvo) */
+export async function graph(caminho: string, token: string, metodo = "GET", corpo?: Record<string, unknown>) {
+  const r = await fetch(`${GRAPH}/${caminho}`, {
+    method: metodo,
+    headers: { Authorization: `Bearer ${token}`, ...(corpo ? { "Content-Type": "application/json" } : {}) },
+    body: corpo ? JSON.stringify(corpo) : undefined,
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`Graph ${metodo} ${caminho.split("?")[0]} ${r.status}: ${JSON.stringify(j?.error?.message ?? j)}`);
+  return j;
+}
 
 /* X-Hub-Signature-256 = "sha256=" + HMAC-SHA256(app secret, corpo cru). Sem isso qualquer um posta no webhook. */
 export async function assinaturaValida(corpo: string, cabecalho: string | null, segredo: string) {
@@ -21,7 +45,7 @@ export async function assinaturaValida(corpo: string, cabecalho: string | null, 
 async function post(phoneNumberId: string, body: Record<string, unknown>) {
   const r = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${TOKEN()}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${await tokenDo(phoneNumberId)}`, "Content-Type": "application/json" },
     body: JSON.stringify({ messaging_product: "whatsapp", ...body }),
   });
   const j = await r.json().catch(() => ({}));
