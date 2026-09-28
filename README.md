@@ -71,7 +71,7 @@ antes, e o aplicativo precisa ser aberto pelo menos a cada 14 dias.
 
 ## Ligação da loja (cadastro incorporado)
 
-A Moza é Tech Provider. A loja liga o número pela página `mozabr.com.br/conectar-whatsapp.html?convite=<convite>`
+A Moza é Tech Provider. A loja liga o número pela página `www.mozabr.com.br/conectar-whatsapp?convite=<convite>`
 (no repositório `site-moza`), escolhendo conectar o WhatsApp Business que já usa. O convite é aleatório, de uso
 único, em `pa_lojas.convite_onboarding`. Ao concluir, a função (`ligacao.ts`):
 

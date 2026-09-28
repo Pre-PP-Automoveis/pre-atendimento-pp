@@ -21,8 +21,12 @@ const anthropic = () => (_anthropic ??= new Anthropic({ apiKey: Deno.env.get("AN
 const APP_SECRET = Deno.env.get("WHATSAPP_APP_SECRET") ?? "";
 const VERIFY_TOKEN = Deno.env.get("WHATSAPP_VERIFY_TOKEN") ?? "";
 /* a página do cadastro mora no site da Moza e chama esta função pelo navegador */
-const ORIGEM_CADASTRO = "https://mozabr.com.br";
-const CORS_CADASTRO = { "Access-Control-Allow-Origin": ORIGEM_CADASTRO, "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "content-type", "Vary": "Origin" };
+/* o site responde em www (Vercel), mas o endereço sem www redireciona para lá: aceita os dois */
+const ORIGENS_CADASTRO = ["https://www.mozabr.com.br", "https://mozabr.com.br"];
+const corsCadastro = (origem: string | null) => ({
+  "Access-Control-Allow-Origin": origem && ORIGENS_CADASTRO.includes(origem) ? origem : ORIGENS_CADASTRO[0],
+  "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "content-type", "Vary": "Origin",
+});
 
 /* USD por token. Cache de 1 hora: escrita a 2x, leitura a 0,1x da entrada. */
 const PRECOS: Record<string, { in: number; out: number }> = {
@@ -77,14 +81,14 @@ Deno.serve(async (req) => {
     const ok = !!VERIFY_TOKEN && url.searchParams.get("hub.mode") === "subscribe" && url.searchParams.get("hub.verify_token") === VERIFY_TOKEN;
     return ok ? new Response(url.searchParams.get("hub.challenge") ?? "") : new Response("forbidden", { status: 403 });
   }
-  if (req.method === "OPTIONS" && url.searchParams.get("ligar") !== null) return new Response(null, { status: 204, headers: CORS_CADASTRO });
+  if (req.method === "OPTIONS" && url.searchParams.get("ligar") !== null) return new Response(null, { status: 204, headers: corsCadastro(req.headers.get("origin")) });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
 
-  /* cadastro incorporado concluído na página mozabr.com.br/conectar-whatsapp.html: liga o número da loja */
+  /* cadastro incorporado concluído na página www.mozabr.com.br/conectar-whatsapp: liga o número da loja */
   if (url.searchParams.get("ligar") !== null) {
     const pedido = await req.json().catch(() => ({}));
     const r = await ligarLoja(admin, pedido).catch((e) => ({ status: 500, corpo: { erro: String(e?.message ?? e) } }));
-    return new Response(JSON.stringify(r.corpo), { status: r.status, headers: { ...CORS_CADASTRO, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify(r.corpo), { status: r.status, headers: { ...corsCadastro(req.headers.get("origin")), "Content-Type": "application/json" } });
   }
 
   /* checagem de saúde para quem tem a chave de serviço do projeto: testa a chave da Anthropic numa chamada

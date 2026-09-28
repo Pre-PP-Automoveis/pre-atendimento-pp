@@ -1,5 +1,5 @@
 -- Ligação da loja pelo cadastro incorporado da Meta, com a Moza como Tech Provider.
--- A loja abre mozabr.com.br/conectar-whatsapp.html?convite=<convite>, conecta o número que já usa no WhatsApp
+-- A loja abre www.mozabr.com.br/conectar-whatsapp?convite=<convite>, conecta o número que já usa no WhatsApp
 -- Business (coexistência) e a função guarda a credencial dela aqui. Nada disso tem leitura pública.
 
 create table if not exists pa_credenciais (
