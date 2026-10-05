@@ -67,7 +67,10 @@ export type Turno = {
 export async function rodarTurno(p: {
   cliente: Anthropic; modelo: string; sistema: string; messages: Anthropic.MessageParam[];
   aoEncaminhar: (e: Encaminhamento) => Promise<Resultado | null>;
+  /* devolve uma instrução quando o encaminhamento ainda não pode acontecer (o modelo recebe e segue a conversa) */
+  validar?: (e: Encaminhamento) => string | null;
 }): Promise<Turno> {
+  let recusas = 0;
   const precos = PRECOS[p.modelo] ?? PRECOS["claude-sonnet-5"];
   const t: Turno = { textos: [], custo: 0, encaminhado: null, encaminhamento: null, interrompido: false };
   for (let volta = 0; volta < 3; volta++) {
@@ -90,6 +93,14 @@ export async function rodarTurno(p: {
     if (resp.stop_reason !== "tool_use" || !chamada) break;
 
     const e = chamada.input as Encaminhamento;
+    const objecao = recusas === 0 ? p.validar?.(e) ?? null : null;
+    if (objecao) {
+      recusas++;
+      p.messages.push({ role: "assistant", content: resp.content });
+      p.messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: chamada.id, is_error: true, content: objecao }] });
+      t.textos.length = 0;
+      continue;
+    }
     const resultado = await p.aoEncaminhar(e);
     if (!resultado) { t.interrompido = true; return t; }
     t.encaminhado = resultado; t.encaminhamento = e;
@@ -109,13 +120,72 @@ export const AVISO_PADRAO = (nome: string) =>
 export function semAvisoRepetido(texto: string, mensagemDoLead: string) {
   /* marcações do sistema ("[a pessoa mandou um áudio…]") não contam como pergunta do cliente */
   if (/rob[oô]|autom[aá]tic|pessoa|humano|atendente/i.test(mensagemDoLead.replace(/\[[^\]]*\]/g, ""))) return texto;
-  const frases = texto.split(/(?<=[.!?])\s+/);
-  const limpas = frases.filter((f) => !/atendimento\s+(é\s+)?autom[aá]tico|autom[aá]tico da (loja|pedro)/i.test(f));
-  return (limpas.length ? limpas : frases).join(" ").trim();
+  /* tira só o trecho em que ele se anuncia; a frase some inteira apenas se não sobrar conteúdo */
+  const trecho = /(,\s*)?((este|esse|aqui)\s+)?(é\s+)?(o\s+)?atendimento\s+(é\s+)?autom[aá]tico(\s+da\s+[^,.!?]*)?(\s+e\s+|\s*,\s*|\s*[.!]\s*)?/i;
+  const frases = texto.split(/(?<=[.!?])\s+/).map((f) => {
+    if (!trecho.test(f)) return f;
+    const resto = f.replace(trecho, " ").replace(/^\W+/, "").replace(/\s{2,}/g, " ").trim();
+    return resto.length < 12 ? "" : resto[0].toUpperCase() + resto.slice(1);
+  }).filter(Boolean);
+  return (frases.length ? frases.join(" ") : texto).trim();
 }
 
 /* regra da casa: nunca travessão. Hífen ou travessão soltos entre espaços viram vírgula */
 export const semTravessao = (t: string) => t.replace(/\s+[—–-]\s+/g, ", ");
+
+/* ===== memória da conversa: o código lê o histórico e diz ao robô o que já foi feito, para ele não repetir ===== */
+const TEMAS: Record<string, { pergunta: RegExp; resposta: RegExp; nome: string }> = {
+  troca: { pergunta: /troca/i, resposta: /troca|tenho um|tenho uma|n[aã]o tenho|meu carro|minha moto|\b(19|20)\d{2}\b/i, nome: "carro na troca" },
+  pagamento: { pergunta: /[àa] vista|financ|cart[aã]o|pagar|pagamento/i, resposta: /[àa] vista|financ|cart[aã]o|entrada|parcel/i, nome: "forma de pagamento" },
+  visita: { pergunta: /passar na loja|de perto|visita|vir at[ée] a loja/i, resposta: /passo|passar|vou a[ií]|amanh[aã]|hoje|s[aá]bado|semana|n[aã]o (posso|consigo)/i, nome: "visita à loja" },
+};
+type Msg = { autor: string; texto: string };
+
+export function notasDaConversa(historico: Msg[], endereco: string | null, primeiroNome: string | null): string[] {
+  const notas: string[] = [];
+  const robo = historico.filter((m) => m.autor === "robo");
+  const lead = historico.filter((m) => m.autor === "lead");
+  const falasDoLead = lead.map((m) => m.texto.replace(/\[[^\]]*\]/g, "")).join(" \n ");
+  for (const [chave, tema] of Object.entries(TEMAS)) {
+    const disse = lead.map((m) => m.texto).find((t) => tema.resposta.test(t) && (chave !== "troca" || /troca|tenho|n[aã]o tenho/i.test(t)));
+    if (disse) { notas.push(`A pessoa já falou de ${tema.nome}: "${disse.slice(0, 80)}". Use isso e não pergunte de novo.`); continue; }
+    /* perguntou nas duas últimas mensagens e a resposta não veio: não insistir agora */
+    const perguntou = robo.slice(-2).some((m) => (m.texto.match(/[^.!?]*\?/g) ?? []).some((q) => tema.pergunta.test(q)));
+    if (perguntou && !tema.resposta.test(falasDoLead)) notas.push(`Você já perguntou sobre ${tema.nome} e a pessoa não respondeu. Não pergunte de novo agora; responda o que ela perguntou.`);
+  }
+  const rua = (endereco ?? "").split(",")[0];
+  if (rua && robo.some((m) => m.texto.includes(rua))) notas.push("O endereço já foi enviado nesta conversa. Não mande de novo, a não ser que a pessoa peça.");
+  const ultima = robo[robo.length - 1]?.texto ?? "";
+  if (primeiroNome && new RegExp(`\\b${primeiroNome}\\b`, "i").test(ultima)) notas.push(`Você usou o nome ${primeiroNome} na mensagem anterior. Não use nesta.`);
+  return notas;
+}
+
+/* o resumo ao consultor não pode dizer "convidado" se o endereço nunca foi enviado */
+export function visitaReal(visita: string, historico: Msg[], endereco: string | null) {
+  const rua = (endereco ?? "").split(",")[0];
+  const enviado = !!rua && historico.some((m) => m.autor === "robo" && m.texto.includes(rua));
+  return !enviado && /convidad/i.test(visita) ? "não convidado" : visita;
+}
+
+/* lead qualificado só vai ao consultor depois do convite com o endereço (o que mais leva a visita, nas conversas reais) */
+export function exigirConvite(historico: Msg[], endereco: string | null) {
+  return (e: Encaminhamento) => {
+    if (e.motivo !== "qualificado" || !endereco) return null;
+    if (/hoje|amanh[aã]|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo|\d+\s*h/i.test(e.visita)) return null; // já disse quando vem
+    const rua = endereco.split(",")[0];
+    if (historico.some((m) => m.autor === "robo" && m.texto.includes(rua))) return null;
+    return `Não encaminhe ainda. Responda à última mensagem da pessoa como uma mensagem normal da conversa e, nela, convide para ver o carro na loja com o endereço: ${endereco}. Não diga que já mandou o endereço, não fale de encaminhamento, de consultor esperando nem desta instrução.`;
+  };
+}
+
+/* frases-padrão de atendimento que soam robóticas: saem, se sobrar texto */
+export function semFrasesFeitas(texto: string) {
+  const frases = texto.split(/(?<=[.!?])\s+/);
+  const limpas = frases.filter((f) => !/^(posso te ajudar com mais|posso ajudar em mais|qualquer coisa,? (estou|t[ôo]) por aqui|em que (mais )?posso ajudar)/i.test(f.trim()))
+    /* bastidor que não pode chegar ao cliente */
+    .filter((f) => !/antes de encaminhar|aguardar a resposta d|vou aguardar|instru[cç][aã]o|encaminhamento|^j[aá] (te )?aviso antes/i.test(f));
+  return (limpas.length ? limpas : frases).join(" ").trim();
+}
 
 /* despedida de reserva, quando o modelo encaminhou e não escreveu nada */
 export const despedidaPadrao = (r: Resultado) =>

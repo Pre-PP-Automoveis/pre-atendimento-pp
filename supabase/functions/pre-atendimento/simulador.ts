@@ -2,7 +2,7 @@
 // O encaminhamento é de mentira, mas segue a regra real do horário: loja aberta avisa, loja fechada vai para a fila.
 // Serve para calibrar o robô antes de ligar a loja e depois de cada ajuste de prompt.
 import type Anthropic from "npm:@anthropic-ai/sdk";
-import { AVISO_PADRAO, despedidaPadrao, semAvisoRepetido, semTravessao, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
+import { AVISO_PADRAO, despedidaPadrao, exigirConvite, notasDaConversa, semAvisoRepetido, semFrasesFeitas, semTravessao, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
 import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 
 export type Cenario = {
@@ -12,6 +12,7 @@ export type Cenario = {
   veiculo_texto?: string | null; // o que o link do portal diz do carro
   ficha_id?: string | null;     // carro do estoque amarrado ao anúncio
   ficha_busca?: string | null;  // ou um trecho do título, para cenários escritos sem saber o id
+  lead_nome?: string | null;    // nome do perfil do WhatsApp do lead
   mensagens: string[];          // uma entrada por turno do lead (várias linhas = várias mensagens seguidas)
 };
 
@@ -37,21 +38,23 @@ export async function simular(
       const horario = situacaoHorario(loja.horario ?? {}, quando);
       const messages = montarMensagens(historico, contextoTurno({
         agora: agoraSP(quando), horario: horario.texto, canal: c.canal ?? "Não identificado",
-        veiculoAnuncio: c.veiculo_texto ?? null, ficha, primeiroTurno: i === 0,
+        veiculoAnuncio: c.veiculo_texto ?? null, ficha, primeiroTurno: i === 0, nome: c.lead_nome ?? null,
+        notas: notasDaConversa(historico, loja.endereco, (c.lead_nome ?? "").trim().split(/\s+/)[0] || null),
       }));
       if (!messages) break;
       try {
         const t = await rodarTurno({
           cliente, modelo: loja.modelo, sistema, messages,
+          validar: exigirConvite(historico, loja.endereco),
           aoEncaminhar: async (e) => horario.aberta
             ? { ok: true, vendedor: "consultor da vez" }
             : { ok: true, vendedor: null, fila: true, abre: horario.abre },
         });
         custo += t.custo;
-        let texto = semTravessao((t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n"));
+        let texto = semFrasesFeitas(semTravessao((t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n")));
         if (i === 0 && texto) texto = `${loja.aviso_inicial || AVISO_PADRAO(loja.nome)}\n\n${semAvisoRepetido(texto, msg)}`;
         historico.push({ autor: "robo", texto: texto || "[o robô não respondeu]" });
-        if (t.encaminhamento) { encaminhamento = t.encaminhamento; break; }
+        if (t.encaminhamento) { encaminhamento = { ...t.encaminhamento, visita: visitaReal(t.encaminhamento.visita, historico, loja.endereco) }; break; }
       } catch (e) {
         erro = String((e as Error)?.message ?? e);
         break;

@@ -58,13 +58,14 @@ def ler(caminho):
                 marca = MARCAS[m.upper()]
             placa = c[3].upper()
             comb = COMBUSTIVEL.get(c[6].upper(), c[6].lower())
-            partes = [marca, modelo, ano(c[1]), c[2].lower(), comb]
+            partes = [marca, modelo, ano(c[1]), comb]
             carros[placa or f"sem-placa-{len(carros)}"] = {
                 "titulo": " ".join(p for p in partes if p),
                 "disponivel": True,
                 "preco": numero(c[7]),
                 "km": numero(c[4]),
                 "laudo_cautelar": c[5] or None,  # guardado para o consultor, fora do prompt
+                "observacoes": f"cor {c[2].lower()}" if c[2] else None,
                 "anuncios": {"placa": placa} if placa else {},
             }
     return list(carros.values())

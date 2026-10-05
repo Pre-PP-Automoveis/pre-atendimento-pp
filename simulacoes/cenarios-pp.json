@@ -1,31 +1,182 @@
 {
-  "_nota": "Cenários tirados das 10 conversas reais da PP (out/2026), rodados contra o estoque real do banco. Segunda 05/10 15h = loja aberta; sábado 03/10 20h30 = fechada.",
-  "cenarios": [
-    {"nome": "01. Portal: disponível, preço, km e troca", "agora": "2026-10-05T15:00:00-03:00", "canal": "WebMotors", "veiculo_texto": "Volkswagen Up Take Mcv 2017/2017", "ficha_busca": "UP TAKE MCV",
-     "mensagens": ["Olá, estou entrando em contato referente ao seu anúncio na Webmotors webmotors.com.br/comprar/volkswagen/up/10-mpi-take-up-mcv/4-portas/2017-2017/71234567\nboa tarde, ainda disponível?", "qual o valor?", "quantos km ele tem?", "tenho um gol 2012 pra dar na troca", "uns 150 mil km", "vc da quanto nele?"]},
-    {"nome": "02. Troca logo de cara, carro financiado", "agora": "2026-10-05T15:00:00-03:00", "canal": "Mercado Livre", "veiculo_texto": "Hyundai I30 2.0 2011", "ficha_busca": "I30 2.0 2010/2011",
-     "mensagens": ["Pega na troca veículo tb?", "um ka 2014 1.6 com 140 mil, ainda tá financiado", "financiamento", "posso passar ai amanhã?"]},
-    {"nome": "03. Preço sem link, pergunta de versão", "agora": "2026-10-05T15:00:00-03:00",
-     "mensagens": ["Tem algum fusion?", "qual valor", "é awd?", "sem entrada da pra financiar?"]},
-    {"nome": "04. Financiamento e CPF mandado sem pedir", "agora": "2026-10-05T15:00:00-03:00", "canal": "Na Pista", "veiculo_texto": "Chevrolet Cobalt LTZ 2020", "ficha_busca": "COBALT 18A LTZ 2019",
-     "mensagens": ["Sem entrada? Com entrada? Como vocês fazem?", "meu cpf é 123.456.789-00 nasci 10/02/1990", "quanto fica a parcela?"]},
-    {"nome": "05. Garantia, leilão e laudo", "agora": "2026-10-05T15:00:00-03:00", "canal": "OLX", "veiculo_texto": "Ford Ka 1.6 2009", "ficha_busca": "KA 1.6",
-     "mensagens": ["esse ka tem garantia?", "passou por leilão? tem laudo cautelar?"]},
-    {"nome": "06. Pergunta se é robô e pede pessoa", "agora": "2026-10-05T15:00:00-03:00",
-     "mensagens": ["isso é robô?", "quero falar com uma pessoa"]},
-    {"nome": "07. Sábado à noite, quer ver no domingo", "agora": "2026-10-03T20:30:00-03:00", "canal": "Mercado Livre", "veiculo_texto": "Chevrolet Cobalt 1.8 Ltz 2020", "ficha_busca": "COBALT 18A LTZ 2019",
-     "mensagens": ["boa noite, o cobalt ainda tá aí?", "quero ver ele amanhã de manhã, pode ser?"]},
-    {"nome": "08. Dois áudios seguidos", "agora": "2026-10-05T15:00:00-03:00",
-     "mensagens": ["[a pessoa mandou um áudio, que você não consegue ouvir]", "[a pessoa mandou um áudio, que você não consegue ouvir]"]},
-    {"nome": "09. Contato direto, sem carro definido", "agora": "2026-10-05T15:00:00-03:00",
-     "mensagens": ["boa tarde", "to procurando um carro até 40 mil pra trabalhar", "à vista"]},
-    {"nome": "10. Carro que a loja não tem, depois SUV", "agora": "2026-10-05T15:00:00-03:00",
-     "mensagens": ["vocês tem tiggo?", "e algum suv até 70?"]},
-    {"nome": "11. Quer passar hoje", "agora": "2026-10-05T14:00:00-03:00", "canal": "OLX", "veiculo_texto": "Ford Ka 1.6 2009", "ficha_busca": "KA 1.6",
-     "mensagens": ["oi, esse ka ainda tá disponível?", "vou à vista", "não tenho troca", "consigo passar hoje às 17h"]},
-    {"nome": "12. Carro que não está no estoque, pede outro", "agora": "2026-10-05T15:00:00-03:00", "canal": "OLX", "veiculo_texto": "Fiat Strada Freedom 2021",
-     "mensagens": ["a strada ainda tá aí?", "e tem outro utilitário?"]},
-    {"nome": "13. Dois carros iguais, um sem preço", "agora": "2026-10-05T15:00:00-03:00",
-     "mensagens": ["qual o valor do cruze preto?", "e o branco?"]}
-  ]
+ "_nota": "Cenários tirados das 10 conversas reais da PP (out/2026), rodados contra o estoque real do banco. Segunda 05/10 15h = loja aberta; sábado 03/10 20h30 = fechada.",
+ "cenarios": [
+  {
+   "nome": "01. Portal: disponível, preço, km e troca",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "canal": "WebMotors",
+   "veiculo_texto": "Volkswagen Up Take Mcv 2017/2017",
+   "ficha_busca": "UP TAKE MCV",
+   "mensagens": [
+    "Olá, estou entrando em contato referente ao seu anúncio na Webmotors webmotors.com.br/comprar/volkswagen/up/10-mpi-take-up-mcv/4-portas/2017-2017/71234567\nboa tarde, ainda disponível?",
+    "qual o valor?",
+    "quantos km ele tem?",
+    "tenho um gol 2012 pra dar na troca",
+    "uns 150 mil km",
+    "vc da quanto nele?"
+   ],
+   "lead_nome": "Marcos Vinicius"
+  },
+  {
+   "nome": "02. Troca logo de cara, carro financiado",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "canal": "Mercado Livre",
+   "veiculo_texto": "Hyundai I30 2.0 2011",
+   "ficha_busca": "I30 2.0 2010/2011",
+   "mensagens": [
+    "Pega na troca veículo tb?",
+    "um ka 2014 1.6 com 140 mil, ainda tá financiado",
+    "financiamento",
+    "posso passar ai amanhã?"
+   ],
+   "lead_nome": "Juliana"
+  },
+  {
+   "nome": "03. Preço sem link, pergunta de versão",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "mensagens": [
+    "Tem algum fusion?",
+    "qual valor",
+    "é awd?",
+    "sem entrada da pra financiar?"
+   ]
+  },
+  {
+   "nome": "04. Financiamento e CPF mandado sem pedir",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "canal": "Na Pista",
+   "veiculo_texto": "Chevrolet Cobalt LTZ 2020",
+   "ficha_busca": "COBALT 18A LTZ 2019",
+   "mensagens": [
+    "Sem entrada? Com entrada? Como vocês fazem?",
+    "meu cpf é 123.456.789-00 nasci 10/02/1990",
+    "quanto fica a parcela?"
+   ],
+   "lead_nome": "Thiago Souza"
+  },
+  {
+   "nome": "05. Garantia, leilão e laudo",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "canal": "OLX",
+   "veiculo_texto": "Ford Ka 1.6 2009",
+   "ficha_busca": "KA 1.6",
+   "mensagens": [
+    "esse ka tem garantia?",
+    "passou por leilão? tem laudo cautelar?"
+   ]
+  },
+  {
+   "nome": "06. Pergunta se é robô e pede pessoa",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "mensagens": [
+    "isso é robô?",
+    "quero falar com uma pessoa"
+   ]
+  },
+  {
+   "nome": "07. Sábado à noite, quer ver no domingo",
+   "agora": "2026-10-03T20:30:00-03:00",
+   "canal": "Mercado Livre",
+   "veiculo_texto": "Chevrolet Cobalt 1.8 Ltz 2020",
+   "ficha_busca": "COBALT 18A LTZ 2019",
+   "mensagens": [
+    "boa noite, o cobalt ainda tá aí?",
+    "quero ver ele amanhã de manhã, pode ser?"
+   ],
+   "lead_nome": "Ana Paula"
+  },
+  {
+   "nome": "08. Dois áudios seguidos",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "mensagens": [
+    "[a pessoa mandou um áudio, que você não consegue ouvir]",
+    "[a pessoa mandou um áudio, que você não consegue ouvir]"
+   ]
+  },
+  {
+   "nome": "09. Contato direto, sem carro definido",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "mensagens": [
+    "boa tarde",
+    "to procurando um carro até 40 mil pra trabalhar",
+    "à vista"
+   ],
+   "lead_nome": "Roberto"
+  },
+  {
+   "nome": "10. Carro que a loja não tem, depois SUV",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "mensagens": [
+    "vocês tem tiggo?",
+    "e algum suv até 70?"
+   ]
+  },
+  {
+   "nome": "11. Quer passar hoje",
+   "agora": "2026-10-05T14:00:00-03:00",
+   "canal": "OLX",
+   "veiculo_texto": "Ford Ka 1.6 2009",
+   "ficha_busca": "KA 1.6",
+   "mensagens": [
+    "oi, esse ka ainda tá disponível?",
+    "vou à vista",
+    "não tenho troca",
+    "consigo passar hoje às 17h"
+   ],
+   "lead_nome": "Carla Mendes"
+  },
+  {
+   "nome": "12. Carro que não está no estoque, pede outro",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "canal": "OLX",
+   "veiculo_texto": "Fiat Strada Freedom 2021",
+   "mensagens": [
+    "a strada ainda tá aí?",
+    "e tem outro utilitário?"
+   ]
+  },
+  {
+   "nome": "13. Dois carros iguais, um sem preço",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "mensagens": [
+    "qual o valor do cruze preto?",
+    "e o branco?"
+   ],
+   "lead_nome": "Leandro"
+  },
+  {
+   "nome": "14. Pergunta por carro reprovado pelo nome",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "lead_nome": "Felipe",
+   "mensagens": [
+    "boa tarde, vocês tem CR-V?",
+    "qual o valor dela?"
+   ]
+  },
+  {
+   "nome": "15. Chega pelo anúncio de carro reprovado",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "canal": "Mercado Livre",
+   "veiculo_texto": "Honda Fit Exl 2009",
+   "ficha_busca": "FIT EXL",
+   "mensagens": [
+    "ainda tá disponível esse fit?",
+    "qual o valor?",
+    "tenho um palio 2010 pra troca"
+   ]
+  },
+  {
+   "nome": "16. Muitas perguntas sobre o carro, sem responder a triagem",
+   "agora": "2026-10-05T15:00:00-03:00",
+   "lead_nome": "Gustavo Lima",
+   "mensagens": [
+    "boa tarde, vi o onix de vocês",
+    "ele é completo?",
+    "tem multimídia?",
+    "e o consumo dele, é bom?",
+    "qual o valor?",
+    "tá, e aceita cartão?"
+   ]
+  }
+ ]
 }

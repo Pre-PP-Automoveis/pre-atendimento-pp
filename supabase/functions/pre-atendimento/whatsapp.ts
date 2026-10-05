@@ -56,9 +56,11 @@ async function post(phoneNumberId: string, body: Record<string, unknown>) {
 export const enviarTexto = (phoneNumberId: string, para: string, texto: string) =>
   post(phoneNumberId, { recipient_type: "individual", to: para, type: "text", text: { preview_url: false, body: texto } });
 
-/* marca como lida: o lead vê o duplo check azul enquanto o robô escreve */
+/* marca como lida e mostra "digitando…" ao lead enquanto o robô escreve (some na resposta ou em ~25 s) */
 export const marcarLida = (phoneNumberId: string, waId: string) =>
-  post(phoneNumberId, { status: "read", message_id: waId }).catch(() => undefined);
+  post(phoneNumberId, { status: "read", message_id: waId, typing_indicator: { type: "text" } })
+    .catch(() => post(phoneNumberId, { status: "read", message_id: waId }))
+    .catch(() => undefined);
 
 /* parâmetro de modelo não aceita quebra de linha, tab nem mais de 4 espaços seguidos, e tem teto de tamanho */
 export const paramModelo = (s: string, max = 900) =>

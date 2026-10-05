@@ -11,8 +11,9 @@ import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type
 import { foneLegivel, passouDoRobo, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
-import { AVISO_PADRAO, despedidaPadrao, semAvisoRepetido, semTravessao, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { AVISO_PADRAO, despedidaPadrao, exigirConvite, notasDaConversa, semAvisoRepetido, semFrasesFeitas, semTravessao, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
+import { painelConsultor, painelGerente } from "./painel.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
@@ -49,6 +50,14 @@ type Linha = Record<string, any>;
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   /* verificação do webhook, feita uma vez no painel da Meta */
+  /* painel de leads (link pessoal do consultor ou do gerente), lido pela página do site da Moza */
+  if (url.searchParams.get("painel") !== null) {
+    const cabecalhos = { ...corsCadastro(req.headers.get("origin")), "Access-Control-Allow-Methods": "GET, OPTIONS", "Content-Type": "application/json", "Cache-Control": "no-store" };
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cabecalhos });
+    const r = await lerPainel(url.searchParams.get("painel") ?? "").catch((e) => ({ status: 500, corpo: { erro: String(e?.message ?? e) } }));
+    return new Response(JSON.stringify(r.corpo), { status: r.status, headers: cabecalhos });
+  }
+
   if (req.method === "GET") {
     const ok = !!VERIFY_TOKEN && url.searchParams.get("hub.mode") === "subscribe" && url.searchParams.get("hub.verify_token") === VERIFY_TOKEN;
     return ok ? new Response(url.searchParams.get("hub.challenge") ?? "") : new Response("forbidden", { status: 403 });
@@ -252,7 +261,8 @@ async function responder(loja: Linha, conversaId: string) {
   const primeiroTurno = !conversa.respondido_robo_em;
   const messages = montarMensagens(historico ?? [], contextoTurno({
     agora: agoraSP(), horario: situacaoHorario(loja.horario ?? {}).texto, canal: conversa.origem,
-    veiculoAnuncio: conversa.origem_detalhe?.veiculo_texto ?? null, ficha, primeiroTurno,
+    veiculoAnuncio: conversa.origem_detalhe?.veiculo_texto ?? null, ficha, primeiroTurno, nome: conversa.lead_nome,
+    notas: notasDaConversa(historico ?? [], loja.endereco, primeiroNome(conversa.lead_nome) || null),
   }));
   if (!messages) return;
 
@@ -262,11 +272,12 @@ async function responder(loja: Linha, conversaId: string) {
   try {
     const turno = await rodarTurno({
       cliente: anthropic(), modelo: loja.modelo, sistema: promptSistema(loja as Loja, veiculos), messages,
+      validar: exigirConvite(historico ?? [], loja.endereco),
       aoEncaminhar: async (e) => {
         /* o cron dos 15 minutos ou o time podem ter levado a conversa enquanto a Claude pensava */
         const { data: estadoAgora } = await admin.from("pa_conversas").select("estado").eq("id", conversaId).single();
         if (estadoAgora?.estado !== "robo") return null;
-        return encaminhar(loja, conversa, e);
+        return encaminhar(loja, conversa, { ...e, visita: visitaReal(e.visita, historico ?? [], loja.endereco) });
       },
     });
     if (turno.interrompido) return;
@@ -289,7 +300,7 @@ async function responder(loja: Linha, conversaId: string) {
   if (agoraConversa?.primeira_acao_humana_em) return;
   if (!encaminhado && agoraConversa?.estado !== "robo") return; // o cron dos 15 minutos encaminhou no meio
   /* aviso do item 8.5 abrindo a primeira mensagem, em texto fixo */
-  let texto = semTravessao(textos.join("\n\n"));
+  let texto = semFrasesFeitas(semTravessao(textos.join("\n\n")));
   if (primeiroTurno) {
     const ultimaDoLead = [...(historico ?? [])].reverse().find((m) => m.autor === "lead")?.texto ?? "";
     texto = `${loja.aviso_inicial || AVISO_PADRAO(loja.nome)}\n\n${semAvisoRepetido(texto, ultimaDoLead)}`;
@@ -381,16 +392,20 @@ async function avisarVendedor(loja: Linha, conversa: Linha): Promise<Resultado> 
     if (!repasse) await admin.from("pa_conversas").update({ estado: "fila", fila_em: conversa.fila_em ?? agora, resumo: { ...e, erro } }).eq("id", conversa.id);
     return { ok: false, vendedor: null, erro };
   };
-  if (!loja.template_aviso_vendedor) return falhar("modelo de aviso não configurado");
   const { data: equipe } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id);
   const vend = proximoVendedor(equipe ?? [], tentativas);
   if (!vend) return falhar("nenhum vendedor ativo");
 
-  try {
-    await enviarAvisoVendedor(loja.phone_number_id, vend.whatsapp, loja.template_aviso_vendedor, paramsAviso(conversa, e,
-      repasse ? `Repassado: ninguém respondeu em ${loja.prazo_repasse_min ?? 60} min.` : ""));
-  } catch (err) {
-    return falhar(String(err));
+  /* modo painel (número compartilhado): o lead aparece no painel do consultor da vez, sem mensagem.
+     modo whatsapp: além do painel, o consultor recebe o modelo aprovado no WhatsApp pessoal dele. */
+  if (loja.aviso_modo === "whatsapp" && vend.whatsapp) {
+    if (!loja.template_aviso_vendedor) return falhar("modelo de aviso não configurado");
+    try {
+      await enviarAvisoVendedor(loja.phone_number_id, vend.whatsapp, loja.template_aviso_vendedor, paramsAviso(conversa, e,
+        repasse ? `Repassado: ninguém respondeu em ${loja.prazo_repasse_min ?? 60} min.` : ""));
+    } catch (err) {
+      return falhar(String(err));
+    }
   }
   await admin.from("pa_vendedores").update({ ultimo_lead_em: agora }).eq("id", vend.id);
   await admin.from("pa_conversas").update({
@@ -405,6 +420,11 @@ async function avisarVendedor(loja: Linha, conversa: Linha): Promise<Resultado> 
 async function escalarGerente(loja: Linha, conversa: Linha) {
   const agora = new Date().toISOString();
   await admin.from("pa_conversas").update({ escalado_em: agora }).eq("id", conversa.id);
+  if (loja.aviso_modo !== "whatsapp") {
+    /* modo painel: o lead fica em vermelho no painel do gerente */
+    await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema", texto: "rodízio esgotado sem resposta: destacado no painel do gerente" });
+    return true;
+  }
   if (!loja.gerente_whatsapp || !loja.template_aviso_vendedor) {
     await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema", texto: "rodízio esgotado sem resposta, e não há gerente cadastrado para avisar" });
     return false;
@@ -425,4 +445,28 @@ function paramsAviso(conversa: Linha, e: Encaminhamento, prefixo: string) {
   const detalhe = [prefixo, `Troca: ${e.troca}`, `Pagamento: ${e.pagamento}`, `Visita: ${e.visita}`, `Pendências: ${e.pendencias}`, e.resumo]
     .filter(Boolean).join(" · ");
   return [conversa.lead_nome || "cliente", foneLegivel(conversa.lead_wa), e.veiculo, conversa.origem, detalhe];
+}
+
+/* ===== painel de leads ===== */
+async function lerPainel(token: string): Promise<{ status: number; corpo: unknown }> {
+  if (token.length < 32) return { status: 403, corpo: { erro: "link inválido" } };
+  const { data: lojaGerente } = await admin.from("pa_lojas").select("*").eq("token_painel_gerente", token).maybeSingle();
+  const { data: vendedor } = lojaGerente ? { data: null } : await admin.from("pa_vendedores").select("*").eq("token_painel", token).maybeSingle();
+  const lojaId = lojaGerente?.id ?? vendedor?.loja_id;
+  if (!lojaId) return { status: 403, corpo: { erro: "link inválido ou desativado" } };
+  const loja = lojaGerente ?? (await admin.from("pa_lojas").select("*").eq("id", lojaId).single()).data!;
+
+  const desde = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+  const [{ data: conversas }, { data: equipe }] = await Promise.all([
+    admin.from("pa_conversas").select("*").eq("loja_id", lojaId).neq("estado", "encerrada").gte("ultima_msg_em", desde),
+    admin.from("pa_vendedores").select("id, nome, ativo").eq("loja_id", lojaId),
+  ]);
+  const nomes = new Map<string, string>((equipe ?? []).map((v: Linha) => [v.id, v.nome]));
+  const prazo = loja.prazo_repasse_min ?? 15;
+  const { data: hojeSP } = { data: new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }) };
+  const inicioDoDia = new Date(`${hojeSP}T00:00:00-03:00`).toISOString();
+  const cabecalho = { loja: loja.nome, prazo_repasse_min: prazo, horario: situacaoHorario(loja.horario ?? {}).texto, atualizado_em: new Date().toISOString() };
+  if (lojaGerente) return { status: 200, corpo: { ...cabecalho, quem: "gerente", nome: loja.gerente_nome ?? "Gerente", ...painelGerente(conversas ?? [], nomes, prazo, Date.now(), inicioDoDia) } };
+  if (!vendedor.ativo) return { status: 403, corpo: { erro: "consultor fora do rodízio" } };
+  return { status: 200, corpo: { ...cabecalho, quem: "consultor", nome: vendedor.nome, ...painelConsultor(conversas ?? [], vendedor.id, nomes, prazo) } };
 }
