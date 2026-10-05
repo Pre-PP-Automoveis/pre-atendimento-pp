@@ -23,7 +23,7 @@ export const ENCAMINHAR: Anthropic.Tool = {
       veiculo: { type: "string", description: "Carro de interesse como a pessoa ou o anúncio disse. \"não identificado\" se não souber." },
       troca: { type: "string", description: "Carro da troca (modelo, ano, km) como a pessoa disse, ou \"não tem\" / \"não perguntado\" / \"não respondeu\"." },
       pagamento: { type: "string", description: "À vista, financiamento, cartão, entrada, ou \"não perguntado\" / \"não respondeu\"." },
-      visita: { type: "string", description: "O que disse sobre ir à loja (quer ir, quando, não pode), ou \"não perguntado\" / \"não respondeu\"." },
+      visita: { type: "string", description: "O que disse sobre ir à loja (quer ir, quando, não pode). \"convidado, sem resposta\" só se você mandou o endereço nesta conversa; senão \"não convidado\"." },
       pendencias: { type: "string", description: "Perguntas que ficaram para o consultor responder, ou \"nenhuma\"." },
       resumo: { type: "string", description: "Uma frase para o consultor sobre o que a pessoa quer." },
     },
@@ -103,6 +103,19 @@ export async function rodarTurno(p: {
 /* aviso do item 8.5 do contrato, anexado em texto fixo à primeira resposta (pa_lojas.aviso_inicial manda, se existir) */
 export const AVISO_PADRAO = (nome: string) =>
   `Este é o atendimento automático da ${nome}. Seus dados são usados só para o atendimento comercial da loja, e se preferir falar com uma pessoa do time é só pedir.`;
+
+/* O aviso do item 8.5 já abre a primeira mensagem em texto fixo. Se o modelo também se anunciar, a frase sai:
+   o cliente leria "atendimento automático" duas vezes. Fica quando o próprio cliente perguntou se é robô. */
+export function semAvisoRepetido(texto: string, mensagemDoLead: string) {
+  /* marcações do sistema ("[a pessoa mandou um áudio…]") não contam como pergunta do cliente */
+  if (/rob[oô]|autom[aá]tic|pessoa|humano|atendente/i.test(mensagemDoLead.replace(/\[[^\]]*\]/g, ""))) return texto;
+  const frases = texto.split(/(?<=[.!?])\s+/);
+  const limpas = frases.filter((f) => !/atendimento\s+(é\s+)?autom[aá]tico|autom[aá]tico da (loja|pedro)/i.test(f));
+  return (limpas.length ? limpas : frases).join(" ").trim();
+}
+
+/* regra da casa: nunca travessão. Hífen ou travessão soltos entre espaços viram vírgula */
+export const semTravessao = (t: string) => t.replace(/\s+[—–-]\s+/g, ", ");
 
 /* despedida de reserva, quando o modelo encaminhou e não escreveu nada */
 export const despedidaPadrao = (r: Resultado) =>

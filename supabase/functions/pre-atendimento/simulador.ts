@@ -2,7 +2,7 @@
 // O encaminhamento é de mentira, mas segue a regra real do horário: loja aberta avisa, loja fechada vai para a fila.
 // Serve para calibrar o robô antes de ligar a loja e depois de cada ajuste de prompt.
 import type Anthropic from "npm:@anthropic-ai/sdk";
-import { AVISO_PADRAO, despedidaPadrao, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
+import { AVISO_PADRAO, despedidaPadrao, semAvisoRepetido, semTravessao, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
 import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 
 export type Cenario = {
@@ -11,6 +11,7 @@ export type Cenario = {
   canal?: string;               // origem lida do link ou do anúncio
   veiculo_texto?: string | null; // o que o link do portal diz do carro
   ficha_id?: string | null;     // carro do estoque amarrado ao anúncio
+  ficha_busca?: string | null;  // ou um trecho do título, para cenários escritos sem saber o id
   mensagens: string[];          // uma entrada por turno do lead (várias linhas = várias mensagens seguidas)
 };
 
@@ -27,7 +28,9 @@ export async function simular(
   const rodar = async (c: Cenario) => {
     const quando = c.agora ? new Date(c.agora) : new Date();
     const historico: Linha[] = [];
-    const ficha = estoque.find((v) => v.id === c.ficha_id) ?? null;
+    const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const ficha = estoque.find((v) => v.id === c.ficha_id)
+      ?? (c.ficha_busca ? estoque.find((v) => norm(v.titulo).includes(norm(c.ficha_busca!))) : undefined) ?? null;
     let custo = 0, encaminhamento: Encaminhamento | null = null, erro: string | null = null;
     for (const [i, msg] of c.mensagens.entries()) {
       historico.push({ autor: "lead", texto: msg });
@@ -45,8 +48,8 @@ export async function simular(
             : { ok: true, vendedor: null, fila: true, abre: horario.abre },
         });
         custo += t.custo;
-        let texto = (t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n");
-        if (i === 0 && texto) texto += `\n\n${loja.aviso_inicial || AVISO_PADRAO(loja.nome)}`;
+        let texto = semTravessao((t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n"));
+        if (i === 0 && texto) texto = `${loja.aviso_inicial || AVISO_PADRAO(loja.nome)}\n\n${semAvisoRepetido(texto, msg)}`;
         historico.push({ autor: "robo", texto: texto || "[o robô não respondeu]" });
         if (t.encaminhamento) { encaminhamento = t.encaminhamento; break; }
       } catch (e) {
@@ -54,7 +57,7 @@ export async function simular(
         break;
       }
     }
-    return { nome: c.nome, agora: agoraSP(quando), canal: c.canal ?? "Não identificado", historico, encaminhamento, custo_usd: Number(custo.toFixed(5)), erro };
+    return { nome: c.nome, agora: agoraSP(quando), canal: c.canal ?? "Não identificado", ficha: ficha?.titulo ?? null, historico, encaminhamento, custo_usd: Number(custo.toFixed(5)), erro };
   };
   /* em paralelo: a função tem limite de tempo por chamada */
   const resultados = await Promise.all((pedido.cenarios ?? []).map(rodar));

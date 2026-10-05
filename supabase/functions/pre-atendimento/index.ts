@@ -11,7 +11,7 @@ import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type
 import { foneLegivel, passouDoRobo, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
-import { AVISO_PADRAO, despedidaPadrao, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { AVISO_PADRAO, despedidaPadrao, semAvisoRepetido, semTravessao, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
@@ -91,7 +91,9 @@ Deno.serve(async (req) => {
     const pedido = await req.json().catch(() => ({}));
     const { data: loja } = await admin.from("pa_lojas").select("*").eq("slug", pedido.loja ?? "pp-automoveis").single();
     if (!loja) return new Response(JSON.stringify({ erro: "loja não encontrada" }), { status: 404 });
-    const resultado = await simular(anthropic(), loja, pedido);
+    /* sem estoque no pedido, usa o estoque real da loja */
+    const { data: frota } = pedido.estoque ? { data: null } : await admin.from("pa_veiculos").select("*").eq("loja_id", loja.id).order("titulo");
+    const resultado = await simular(anthropic(), loja, { ...pedido, estoque: pedido.estoque ?? frota ?? [] });
     return new Response(JSON.stringify(resultado), { headers: { "Content-Type": "application/json" } });
   }
 
@@ -286,8 +288,12 @@ async function responder(loja: Linha, conversaId: string) {
   const { data: agoraConversa } = await admin.from("pa_conversas").select("estado, primeira_acao_humana_em").eq("id", conversaId).single();
   if (agoraConversa?.primeira_acao_humana_em) return;
   if (!encaminhado && agoraConversa?.estado !== "robo") return; // o cron dos 15 minutos encaminhou no meio
-  let texto = textos.join("\n\n");
-  if (primeiroTurno) texto += `\n\n${loja.aviso_inicial || AVISO_PADRAO(loja.nome)}`;
+  /* aviso do item 8.5 abrindo a primeira mensagem, em texto fixo */
+  let texto = semTravessao(textos.join("\n\n"));
+  if (primeiroTurno) {
+    const ultimaDoLead = [...(historico ?? [])].reverse().find((m) => m.autor === "lead")?.texto ?? "";
+    texto = `${loja.aviso_inicial || AVISO_PADRAO(loja.nome)}\n\n${semAvisoRepetido(texto, ultimaDoLead)}`;
+  }
 
   await enviarTexto(loja.phone_number_id, conversa.lead_wa, texto);
   await admin.from("pa_mensagens").insert({ conversa_id: conversaId, autor: "robo", texto, custo_usd: Number(custo.toFixed(6)) });
