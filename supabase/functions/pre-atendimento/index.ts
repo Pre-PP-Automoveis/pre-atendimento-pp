@@ -11,6 +11,8 @@ import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type
 import { foneLegivel, passouDoRobo, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
+import { AVISO_PADRAO, despedidaPadrao, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { simular } from "./simulador.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
@@ -28,11 +30,6 @@ const corsCadastro = (origem: string | null) => ({
   "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "content-type", "Vary": "Origin",
 });
 
-/* USD por token. Cache de 1 hora: escrita a 2x, leitura a 0,1x da entrada. */
-const PRECOS: Record<string, { in: number; out: number }> = {
-  "claude-sonnet-5": { in: 2 / 1_000_000, out: 10 / 1_000_000 },
-  "claude-haiku-4-5": { in: 1 / 1_000_000, out: 5 / 1_000_000 },
-};
 /* o lead costuma mandar três mensagens em sequência; o robô espera ele terminar e responde uma vez só */
 const ESPERA_MS = 5_000;
 /* sem mensagem nova por esse tempo, a próxima abre outro atendimento (e outro aviso do 8.5). Com vendedor já
@@ -41,37 +38,12 @@ const REABRE_MS = 7 * 24 * 3600 * 1000;
 const REABRE_COM_HUMANO_MS = 30 * 24 * 3600 * 1000;
 /* intervalo mínimo entre dois lembretes de "já está com o vendedor" para o mesmo lead */
 const LEMBRETE_MS = 30 * 60 * 1000;
-const AVISO_PADRAO = (nome: string) =>
-  `Este é o atendimento automático da ${nome}. Seus dados são usados só para o atendimento comercial da loja, e se preferir falar com uma pessoa do time é só pedir.`;
 
 const primeiroNome = (s: string | null | undefined) => (s || "").trim().split(/\s+/)[0] || "";
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // deno-lint-ignore no-explicit-any
 type Linha = Record<string, any>;
-
-/* ===== ferramenta: a única ação que o robô toma no mundo ===== */
-const ENCAMINHAR: Anthropic.Tool = {
-  name: "encaminhar_ao_vendedor",
-  description: "Passa o atendimento ao time de vendas: o vendedor da vez recebe o resumo e continua a conversa neste mesmo número. Depois disso você não responde mais este lead: escreva só a mensagem de despedida.",
-  strict: true,
-  input_schema: {
-    type: "object",
-    additionalProperties: false,
-    required: ["motivo", "veiculo", "troca", "pagamento", "prazo", "pendencias", "resumo"],
-    properties: {
-      motivo: { type: "string", enum: ["qualificado", "pediu_pessoa", "negociacao", "fora_do_escopo", "midia"] },
-      veiculo: { type: "string", description: "Carro de interesse como a pessoa ou o anúncio disse. \"não identificado\" se não souber." },
-      troca: { type: "string", description: "O que a pessoa disse sobre carro na troca, ou \"não perguntado\" / \"não respondeu\"." },
-      pagamento: { type: "string", description: "À vista, financiado, entrada, ou \"não perguntado\" / \"não respondeu\"." },
-      prazo: { type: "string", description: "Quando pensa em fechar, ou \"não perguntado\" / \"não respondeu\"." },
-      pendencias: { type: "string", description: "Perguntas que ficaram para o vendedor responder, ou \"nenhuma\"." },
-      resumo: { type: "string", description: "Uma frase para o vendedor sobre o que a pessoa quer." },
-    },
-  },
-};
-
-type Encaminhamento = { motivo: string; veiculo: string; troca: string; pagamento: string; prazo: string; pendencias: string; resumo: string };
 
 /* ===== HTTP ===== */
 Deno.serve(async (req) => {
@@ -107,6 +79,20 @@ Deno.serve(async (req) => {
       anthropic: claude,
       segredos: { ANTHROPIC_API_KEY: tem("ANTHROPIC_API_KEY"), META_APP_ID: tem("META_APP_ID"), WHATSAPP_APP_SECRET: tem("WHATSAPP_APP_SECRET"), WHATSAPP_VERIFY_TOKEN: tem("WHATSAPP_VERIFY_TOKEN") },
     }), { headers: { "Content-Type": "application/json" } });
+  }
+
+  /* simulador: roda cenários com o prompt e o código reais, sem WhatsApp e sem gravar nada. Chave de serviço. */
+  if (url.searchParams.get("simular") !== null) {
+    const chave = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const { error: negado } = chave
+      ? await createClient(Deno.env.get("SUPABASE_URL")!, chave, { auth: { persistSession: false } }).rpc("pa_confere_cron", { segredo: "-" })
+      : { error: true };
+    if (negado) return new Response("forbidden", { status: 403 });
+    const pedido = await req.json().catch(() => ({}));
+    const { data: loja } = await admin.from("pa_lojas").select("*").eq("slug", pedido.loja ?? "pp-automoveis").single();
+    if (!loja) return new Response(JSON.stringify({ erro: "loja não encontrada" }), { status: 404 });
+    const resultado = await simular(anthropic(), loja, pedido);
+    return new Response(JSON.stringify(resultado), { headers: { "Content-Type": "application/json" } });
   }
 
   /* cron do banco (pg_cron + pg_net), a cada minuto: despacha a fila da noite e repassa quem ficou sem resposta */
@@ -262,84 +248,39 @@ async function responder(loja: Linha, conversaId: string) {
   const veiculos = (estoque ?? []) as Veiculo[];
   const ficha = veiculos.find((v) => v.id === conversa.veiculo_id) ?? null;
   const primeiroTurno = !conversa.respondido_robo_em;
+  const messages = montarMensagens(historico ?? [], contextoTurno({
+    agora: agoraSP(), horario: situacaoHorario(loja.horario ?? {}).texto, canal: conversa.origem,
+    veiculoAnuncio: conversa.origem_detalhe?.veiculo_texto ?? null, ficha, primeiroTurno,
+  }));
+  if (!messages) return;
 
-  /* lead vira user, robô vira assistant; mensagens seguidas do mesmo lado viram um turno só */
-  const messages: Anthropic.MessageParam[] = [];
-  for (const m of historico ?? []) {
-    const role = m.autor === "lead" ? "user" : "assistant";
-    const ult = messages[messages.length - 1];
-    if (ult?.role === role) ult.content = `${ult.content}\n${m.texto}`;
-    else if (messages.length || role === "user") messages.push({ role, content: m.texto });
-  }
-  const ultimo = messages[messages.length - 1];
-  if (ultimo?.role !== "user") return;
-  ultimo.content = [
-    { type: "text", text: ultimo.content as string },
-    { type: "text", text: contextoTurno({
-      agora: agoraSP(), horario: situacaoHorario(loja.horario ?? {}).texto, canal: conversa.origem,
-      veiculoAnuncio: conversa.origem_detalhe?.veiculo_texto ?? null, ficha, primeiroTurno,
-    }) },
-  ];
-
-  const sistema = promptSistema(loja as Loja, veiculos);
-  const modelo: string = loja.modelo;
-  const precos = PRECOS[modelo] ?? PRECOS["claude-sonnet-5"];
+  let textos: string[] = [];
   let custo = 0;
-  const textos: string[] = [];
   let encaminhado: Resultado | null = null;
-
   try {
-    for (let volta = 0; volta < 3; volta++) {
-      const resp = await anthropic().messages.create({
-        model: modelo,
-        max_tokens: 2048,
-        /* triagem de roteiro fechado: esforço baixo responde rápido e custa menos. Haiku 4.5 não aceita effort. */
-        ...(modelo.startsWith("claude-haiku") ? {} : { output_config: { effort: "low" as const } }),
-        system: [{ type: "text", text: sistema, cache_control: { type: "ephemeral", ttl: "1h" } }],
-        tools: [ENCAMINHAR],
-        messages,
-      });
-      const u = resp.usage;
-      custo += u.input_tokens * precos.in + u.output_tokens * precos.out +
-        (u.cache_creation_input_tokens ?? 0) * precos.in * 2 + (u.cache_read_input_tokens ?? 0) * precos.in * 0.1;
-      if (resp.stop_reason === "refusal") throw new Error("resposta recusada pelo modelo");
-
-      for (const b of resp.content) if (b.type === "text" && b.text.trim()) textos.push(b.text.trim());
-      const chamada = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-      if (resp.stop_reason !== "tool_use" || !chamada) break;
-
-      /* o cron dos 15 minutos ou o time podem ter levado a conversa enquanto a Claude pensava */
-      const { data: estadoAgora } = await admin.from("pa_conversas").select("estado").eq("id", conversaId).single();
-      if (estadoAgora?.estado !== "robo") return;
-      const resultado = await encaminhar(loja, conversa, chamada.input as Encaminhamento);
-      encaminhado = resultado;
-      messages.push({ role: "assistant", content: resp.content });
-      messages.push({ role: "user", content: [{
-        type: "tool_result", tool_use_id: chamada.id, is_error: !resultado.ok,
-        content: resultado.fila
-          ? `A loja está fechada. O atendimento ficou anotado e um consultor continua a conversa aqui mesmo, neste número, quando a loja abrir, ${resultado.abre ?? "no próximo horário de funcionamento"}. Diga isso ao lead e despeça-se.`
-          : resultado.ok
-            ? "O consultor da vez recebeu o resumo e continua a conversa aqui mesmo, neste número. Escreva só a despedida, sem citar nome."
-            : `Não foi possível avisar o consultor da vez agora (${resultado.erro}). Diga que um consultor continua a conversa aqui mesmo em instantes e despeça-se.`,
-      }] });
-      textos.length = 0; // o que veio antes da chamada era preâmbulo; vale a despedida
-    }
+    const turno = await rodarTurno({
+      cliente: anthropic(), modelo: loja.modelo, sistema: promptSistema(loja as Loja, veiculos), messages,
+      aoEncaminhar: async (e) => {
+        /* o cron dos 15 minutos ou o time podem ter levado a conversa enquanto a Claude pensava */
+        const { data: estadoAgora } = await admin.from("pa_conversas").select("estado").eq("id", conversaId).single();
+        if (estadoAgora?.estado !== "robo") return null;
+        return encaminhar(loja, conversa, e);
+      },
+    });
+    if (turno.interrompido) return;
+    textos = turno.textos; custo = turno.custo; encaminhado = turno.encaminhado;
   } catch (e) {
     /* contingência do item 4.6: o lead não fica sem resposta e a conversa vai para uma pessoa */
     console.error("claude", conversaId, e);
-    textos.length = 0;
-    if (!encaminhado) {
-      encaminhado = await encaminhar(loja, conversa, { motivo: "fora_do_escopo", veiculo: conversa.origem_detalhe?.veiculo_texto || "não identificado",
-        troca: "não perguntado", pagamento: "não perguntado", prazo: "não perguntado", pendencias: "nenhuma",
-        resumo: "O robô ficou indisponível no meio do atendimento; retome a conversa do começo." });
-    }
-    textos.push(encaminhado.fila
+    encaminhado ??= await encaminhar(loja, conversa, { motivo: "fora_do_escopo", veiculo: conversa.origem_detalhe?.veiculo_texto || "não identificado",
+      troca: "não perguntado", pagamento: "não perguntado", visita: "não perguntado", pendencias: "nenhuma",
+      resumo: "O robô ficou indisponível no meio do atendimento; retome a conversa do começo." });
+    textos = [encaminhado.fila
       ? `Recebi sua mensagem. Um consultor continua a conversa aqui mesmo assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`
-      : "Recebi sua mensagem. Um consultor continua a conversa aqui mesmo em instantes.");
+      : "Recebi sua mensagem. Um consultor continua a conversa aqui mesmo em instantes."];
   }
 
-  if (!textos.length && encaminhado?.fila) textos.push(`Anotei tudo. Um consultor continua a conversa aqui mesmo assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`);
-  else if (!textos.length && encaminhado) textos.push("Anotei tudo. Um consultor continua a conversa aqui mesmo em instantes.");
+  if (!textos.length && encaminhado) textos.push(despedidaPadrao(encaminhado));
   if (!textos.length) return;
   /* o time pode ter entrado pelo aplicativo enquanto a Claude pensava: aí a vez é deles, e o robô não fala por cima */
   const { data: agoraConversa } = await admin.from("pa_conversas").select("estado, primeira_acao_humana_em").eq("id", conversaId).single();
@@ -352,8 +293,6 @@ async function responder(loja: Linha, conversaId: string) {
   await admin.from("pa_mensagens").insert({ conversa_id: conversaId, autor: "robo", texto, custo_usd: Number(custo.toFixed(6)) });
   if (primeiroTurno) await admin.from("pa_conversas").update({ respondido_robo_em: new Date().toISOString() }).eq("id", conversaId);
 }
-
-type Resultado = { ok: boolean; vendedor: string | null; fila?: boolean; abre?: string | null; erro?: string };
 
 /* Fecha a triagem. Loja aberta: avisa já o vendedor da vez. Loja fechada: entra na fila e o cron avisa na abertura,
    para o lead não cair de madrugada no celular de quem estiver na vez e o SLA contar a partir do horário comercial. */
@@ -378,7 +317,7 @@ async function tirarDoRobo() {
       if (!passouDoRobo(conversa, loja.prazo_robo_min ?? 15)) continue;
       const r = await encaminhar(loja, conversa, {
         motivo: "tempo_esgotado", veiculo: conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
-        troca: "ver na conversa", pagamento: "ver na conversa", prazo: "ver na conversa", pendencias: "ver na conversa",
+        troca: "ver na conversa", pagamento: "ver na conversa", visita: "ver na conversa", pendencias: "ver na conversa",
         resumo: `Triagem não terminou em ${loja.prazo_robo_min ?? 15} min; a conversa inteira está no WhatsApp da loja.`,
       }).catch((err) => ({ ok: false, erro: String(err) }) as Resultado);
       if (r.ok) total++; else console.error("robo", conversa.id, r.erro);
@@ -477,7 +416,7 @@ async function escalarGerente(loja: Linha, conversa: Linha) {
 
 /* modelo na Meta: "Lead para você: {{1}}, {{2}}. Carro: {{3}}. Origem: {{4}}. {{5}} Responda pelo WhatsApp da loja." */
 function paramsAviso(conversa: Linha, e: Encaminhamento, prefixo: string) {
-  const detalhe = [prefixo, `Troca: ${e.troca}`, `Pagamento: ${e.pagamento}`, `Prazo: ${e.prazo}`, `Pendências: ${e.pendencias}`, e.resumo]
+  const detalhe = [prefixo, `Troca: ${e.troca}`, `Pagamento: ${e.pagamento}`, `Visita: ${e.visita}`, `Pendências: ${e.pendencias}`, e.resumo]
     .filter(Boolean).join(" · ");
   return [conversa.lead_nome || "cliente", foneLegivel(conversa.lead_wa), e.veiculo, conversa.origem, detalhe];
 }
