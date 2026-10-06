@@ -488,6 +488,8 @@ function paramsAviso(conversa: Linha, e: Encaminhamento, prefixo: string) {
 /* cada pessoa do time entra com usuário e senha. Quem é gerente vê a loja inteira, com os leads dele no topo. */
 type Resposta = { status: number; corpo: unknown };
 const SAIU: Resposta = { status: 401, corpo: { erro: "Sua sessão terminou. Entre de novo." } };
+/* entrou com a senha padrão: só consegue trocar a senha, nada mais */
+const TROCAR: Resposta = { status: 403, corpo: { trocar_senha: true, erro: "Troque a senha padrão antes de usar o painel." } };
 
 async function donoDaSessao(sessao: string) {
   if (sessao.length < 32) return null;
@@ -519,7 +521,7 @@ async function entrarNoPainel(pedido: Linha): Promise<Resposta> {
   const sessao = novoToken();
   await admin.from("pa_sessoes").insert({ token_hash: await resumoDoToken(sessao), vendedor_id: pessoa.id,
     expira_em: new Date(Date.now() + SESSAO_DIAS * 24 * 3600 * 1000).toISOString() });
-  return { status: 200, corpo: { sessao, nome: pessoa.nome } };
+  return { status: 200, corpo: { sessao, nome: pessoa.nome, trocar_senha: !!pessoa.trocar_senha } };
 }
 
 async function sairDoPainel(sessao: string): Promise<Resposta> {
@@ -533,7 +535,8 @@ async function trocarSenha(sessao: string, pedido: Linha): Promise<Resposta> {
   const nova = String(pedido.nova ?? "");
   if (!(await confereSenha(String(pedido.atual ?? ""), pessoa.senha_hash))) return { status: 400, corpo: { erro: "A senha atual está errada." } };
   if (nova.length < 6 || nova.length > 100) return { status: 400, corpo: { erro: "A senha nova precisa ter pelo menos 6 caracteres." } };
-  await admin.from("pa_vendedores").update({ senha_hash: await hashSenha(nova) }).eq("id", pessoa.id);
+  if (nova === String(pedido.atual)) return { status: 400, corpo: { erro: "A senha nova precisa ser diferente da atual." } };
+  await admin.from("pa_vendedores").update({ senha_hash: await hashSenha(nova), trocar_senha: false }).eq("id", pessoa.id);
   /* derruba as outras sessões: quem sabia a senha antiga sai dos outros aparelhos */
   await admin.from("pa_sessoes").delete().eq("vendedor_id", pessoa.id).neq("token_hash", await resumoDoToken(sessao));
   return { status: 200, corpo: { ok: true } };
@@ -542,6 +545,7 @@ async function trocarSenha(sessao: string, pedido: Linha): Promise<Resposta> {
 async function lerPainel(sessao: string): Promise<Resposta> {
   const pessoa = await donoDaSessao(sessao);
   if (!pessoa) return SAIU;
+  if (pessoa.trocar_senha) return TROCAR;
   const { data: loja } = await admin.from("pa_lojas").select("*").eq("id", pessoa.loja_id).single();
 
   const desde = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
@@ -567,6 +571,7 @@ async function lerPainel(sessao: string): Promise<Resposta> {
 async function agirPainel(sessao: string, pedido: Linha): Promise<Resposta> {
   const gerente = await donoDaSessao(sessao);
   if (!gerente) return SAIU;
+  if (gerente.trocar_senha) return TROCAR;
   if (!gerente.gerente) return { status: 403, corpo: { erro: "Só o gerente faz mudanças no painel." } };
   const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
   const agora = new Date().toISOString();
@@ -579,11 +584,12 @@ async function agirPainel(sessao: string, pedido: Linha): Promise<Resposta> {
     return pessoa ? { status: 200, corpo: { ok: true } } : { status: 404, corpo: { erro: "Pessoa não encontrada." } };
   }
 
-  /* quem esqueceu a senha: o gerente gera uma nova, vê uma vez e passa para a pessoa. Ela sai de todos os aparelhos. */
+  /* quem esqueceu a senha: o gerente gera uma nova, vê uma vez e passa para a pessoa. Ela sai de todos os aparelhos
+     e troca a senha no próximo acesso. */
   if (pedido.acao === "nova_senha") {
     const id = uuid(pedido.vendedor_id);
     const senha = senhaPadrao();
-    const { data: pessoa } = id ? await admin.from("pa_vendedores").update({ senha_hash: await hashSenha(senha), falhas_login: 0, bloqueado_ate: null })
+    const { data: pessoa } = id ? await admin.from("pa_vendedores").update({ senha_hash: await hashSenha(senha), trocar_senha: true, falhas_login: 0, bloqueado_ate: null })
       .eq("id", id).eq("loja_id", gerente.loja_id).select("id, nome, usuario").maybeSingle() : { data: null };
     if (!pessoa) return { status: 404, corpo: { erro: "Pessoa não encontrada." } };
     await admin.from("pa_sessoes").delete().eq("vendedor_id", pessoa.id);

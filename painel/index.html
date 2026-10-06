@@ -111,6 +111,7 @@ try { sessao = localStorage.getItem(CHAVE) || ""; } catch (e) {}
 /* o link antigo com ?t= não abre mais o painel: tira da barra de endereço */
 if (location.search) { try { history.replaceState(null, "", location.pathname); } catch (e) {} }
 var conteudo = document.getElementById("conteudo");
+var senhaDigitada = ""; /* só na memória, entre o login com a senha padrão e a troca obrigatória */
 var dados = null, vistos = null, somLigado = false, ctx = null, ocupado = false;
 
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
@@ -269,11 +270,27 @@ function telaDeEntrada(msg) {
     '<button class="abrir" type="submit">Entrar</button></form>';
 }
 
+/* primeiro acesso (ou senha nova dada pelo gerente): cria a senha própria antes de ver o painel */
+function telaTrocaObrigatoria() {
+  dados = null;
+  document.getElementById("botoes").hidden = true;
+  document.getElementById("titulo").textContent = "Crie a sua senha";
+  document.getElementById("sub").textContent = "A senha que você recebeu vale só para o primeiro acesso.";
+  conteudo.innerHTML = '<form class="entrar" id="form-primeira">' +
+    (senhaDigitada ? "" : '<label>Senha que você recebeu<input name="atual" type="password" autocomplete="current-password" required></label>') +
+    '<label>Senha nova (pelo menos 6 caracteres)<input name="nova" type="password" autocomplete="new-password" minlength="6" required></label>' +
+    '<label>Repita a senha nova<input name="repetir" type="password" autocomplete="new-password" minlength="6" required></label>' +
+    '<p class="erro" id="erro-primeira" role="alert"></p>' +
+    '<button class="abrir" type="submit">Salvar e entrar</button><button class="sutil" type="button" id="sair-primeira">Sair</button></form>';
+}
+
 function carregar() {
   if (!sessao) { if (!document.getElementById("form-entrar")) telaDeEntrada(); return; }
+  if (document.getElementById("form-primeira")) return; /* não apaga o que a pessoa está digitando */
   return chamar("")
     .then(function (res) {
       if (res.status === 401) { telaDeEntrada(res.j.erro); return; }
+      if (res.j && res.j.trocar_senha) { telaTrocaObrigatoria(); return; }
       if (!res.ok) { conteudo.innerHTML = '<p class="aviso">' + esc(res.j.erro || "Não foi possível abrir o painel.") + "</p>"; return; }
       document.getElementById("botoes").hidden = false;
       dados = res.j;
@@ -292,8 +309,9 @@ function agir(corpo, alvo) {
   chamar("", corpo)
     .then(function (res) {
       if (res.status === 401) { ocupado = false; telaDeEntrada(res.j.erro); return; }
+      if (res.j && res.j.trocar_senha) { ocupado = false; telaTrocaObrigatoria(); return; }
       if (!res.ok) { alert(res.j.erro || "Não deu certo. Tente de novo."); return; }
-      if (res.j.senha) alert("Nova senha de " + res.j.nome + "\n\nUsuário: " + res.j.usuario + "\nSenha: " + res.j.senha + "\n\nPasse só para essa pessoa. Ela pode trocar depois de entrar.");
+      if (res.j.senha) alert("Nova senha de " + res.j.nome + "\n\nUsuário: " + res.j.usuario + "\nSenha: " + res.j.senha + "\n\nPasse só para essa pessoa. No primeiro acesso o painel pede para ela criar uma senha própria.");
     })
     .catch(function () { alert("Sem conexão. Tente de novo."); })
     .then(function () { ocupado = false; if (alvo) alvo.blur(); return carregar(); });
@@ -310,7 +328,7 @@ conteudo.addEventListener("click", function (ev) {
   } else if (b.dataset.acao === "nao_e_lead") {
     if (confirm(nome + " não é lead? O robô para de responder este contato e ele sai do painel.")) agir({ acao: "nao_e_lead", conversa_id: b.dataset.id });
   } else if (b.dataset.acao === "nova_senha") {
-    if (confirm("Gerar uma senha nova para " + nome + "? A senha atual deixa de valer e ele sai do painel nos aparelhos dele.")) agir({ acao: "nova_senha", vendedor_id: b.dataset.vend });
+    if (confirm("Gerar uma senha nova para " + nome + "? A senha atual deixa de valer e a pessoa sai do painel nos aparelhos dela.")) agir({ acao: "nova_senha", vendedor_id: b.dataset.vend });
   } else if (b.dataset.acao === "rodizio") {
     agir({ acao: "rodizio", vendedor_id: b.dataset.vend, no_rodizio: b.dataset.valor === "true" });
   }
@@ -324,6 +342,32 @@ conteudo.addEventListener("change", function (ev) {
 });
 
 conteudo.addEventListener("submit", function (ev) {
+  if (ev.target.id !== "form-primeira") return;
+  ev.preventDefault();
+  var f = ev.target, erro = document.getElementById("erro-primeira");
+  if (f.nova.value !== f.repetir.value) { erro.textContent = "As duas senhas novas não são iguais."; return; }
+  var botao = f.querySelector("button[type=submit]");
+  botao.disabled = true;
+  fetch(FUNCAO + "senha", { method: "POST", cache: "no-store", headers: { "authorization": "Bearer " + sessao, "content-type": "application/json" },
+    body: JSON.stringify({ atual: senhaDigitada || f.atual.value, nova: f.nova.value }) })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
+    .then(function (res) {
+      if (res.status === 401) { senhaDigitada = ""; telaDeEntrada(res.j.erro); return; }
+      if (!res.ok) { erro.textContent = res.j.erro || "Não deu certo."; botao.disabled = false; return; }
+      senhaDigitada = "";
+      conteudo.innerHTML = "";
+      carregar();
+    })
+    .catch(function () { erro.textContent = "Sem conexão. Tente de novo."; botao.disabled = false; });
+});
+
+conteudo.addEventListener("click", function (ev) {
+  if (!ev.target.closest || !ev.target.closest("#sair-primeira")) return;
+  senhaDigitada = "";
+  document.getElementById("sair").click();
+});
+
+conteudo.addEventListener("submit", function (ev) {
   if (ev.target.id !== "form-entrar") return;
   ev.preventDefault();
   var f = ev.target, botao = f.querySelector("button");
@@ -334,6 +378,7 @@ conteudo.addEventListener("submit", function (ev) {
     .then(function (res) {
       if (!res.ok) { document.getElementById("erro-entrar").textContent = res.j.erro || "Não deu certo."; botao.disabled = false; return; }
       guardarSessao(res.j.sessao);
+      if (res.j.trocar_senha) { senhaDigitada = f.senha.value; telaTrocaObrigatoria(); return; }
       conteudo.innerHTML = "";
       carregar();
     })

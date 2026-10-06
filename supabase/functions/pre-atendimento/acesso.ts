@@ -31,7 +31,7 @@ export const normalizaUsuario = (u: string) => u.toLowerCase().normalize("NFD").
 /* senha padrão de cada pessoa: "pp" e seis números, fácil de digitar no celular, diferente para cada um */
 export const senhaPadrao = () => "pp" + String(crypto.getRandomValues(new Uint32Array(1))[0] % 1_000_000).padStart(6, "0");
 
-/* errou 5 vezes seguidas: o usuário fica 15 minutos sem conseguir entrar */
-export const MAX_FALHAS = 5;
+/* errou 10 vezes seguidas: o usuário fica 15 minutos sem conseguir entrar */
+export const MAX_FALHAS = 10;
 export const BLOQUEIO_MIN = 15;
 export const SESSAO_DIAS = 30;

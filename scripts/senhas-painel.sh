@@ -3,7 +3,7 @@
 #   scripts/senhas-painel.sh            só quem ainda não tem senha
 #   scripts/senhas-painel.sh --todas    senha nova para todo mundo (derruba as sessões abertas)
 #   scripts/senhas-painel.sh Ryan       senha nova só para essa pessoa
-# No banco fica só o hash (PBKDF2, o mesmo formato de acesso.ts). Mande cada acesso só para a pessoa dele, no privado,
+# A senha padrão vale só para o primeiro acesso: o painel obriga a trocar. No banco fica só o hash (PBKDF2, o mesmo formato de acesso.ts). Mande cada acesso só para a pessoa dele, no privado,
 # e apague o arquivo depois de entregar.
 set -euo pipefail
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,14 +35,14 @@ for v in alvo:
     senha = "pp" + str(secrets.randbelow(1_000_000)).zfill(6)
     sal = secrets.token_hex(16)
     h = "pbkdf2$100000$%s$%s" % (sal, hashlib.pbkdf2_hmac("sha256", senha.encode(), bytes.fromhex(sal), 100000).hex())
-    pedir("PATCH", "/pa_vendedores?id=eq." + v["id"], {"senha_hash": h, "falhas_login": 0, "bloqueado_ate": None})
+    pedir("PATCH", "/pa_vendedores?id=eq." + v["id"], {"senha_hash": h, "trocar_senha": True, "falhas_login": 0, "bloqueado_ate": None})
     pedir("DELETE", "/pa_sessoes?vendedor_id=eq." + v["id"])
     papel = "gerente, vê a loja inteira" if v["gerente"] else ("no rodízio" if v["no_rodizio"] else "fora do rodízio")
     linhas.append("%s (%s)\n  usuário: %s\n  senha:   %s" % (v["nome"], papel, v["usuario"], senha))
 
 agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
 with open(SAIDA, "w") as f:
-    f.write("Painel de leads da Pedro Paulo Automóveis: %s\nAcessos gerados em %s. Cada pessoa troca a senha no painel depois de entrar.\n\n" % (PAINEL, agora))
+    f.write("Painel de leads da Pedro Paulo Automóveis: %s\nAcessos gerados em %s. A senha vale só para o primeiro acesso: o painel pede uma nova na hora.\n\n" % (PAINEL, agora))
     f.write("\n\n".join(linhas) if linhas else "Ninguém sem senha. Use --todas ou o nome da pessoa para gerar de novo.")
     f.write("\n")
 print("%d acesso(s) gravado(s) em %s" % (len(linhas), SAIDA))

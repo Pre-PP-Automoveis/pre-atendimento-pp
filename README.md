@@ -23,7 +23,7 @@ pela API (coexistência da Meta). Ninguém precisa trocar de aplicativo.
    O link de quem tem `gerente = true` abre a loja inteira: o gerente puxa lead para si, passa para outra pessoa
    (`fixado_por = 'gerente'`, tira do robô na hora), liga e desliga gente do rodízio e marca "não é lead"
    (`pa_ignorados`: o robô não responde mais o contato) e gera senha nova para quem esqueceu.
-   Usuário: primeiro nome + `pa_lojas.sufixo_usuario` ("ryanppautomoveis"); senha padrão diferente por pessoa, criada por
+   Usuário: primeiro nome + `pa_lojas.sufixo_usuario` ("ryanppautomoveis"); senha padrão diferente por pessoa, trocada à força no primeiro acesso, criada por
    `scripts/senhas-painel.sh` (grava em `~/.config/pre-atendimento-pp/acessos-painel.txt`). No banco só ficam hashes.
    O endereço do painel precisa estar no segredo `PAINEL_ORIGENS` da função, senão o navegador bloqueia a leitura.
 6. **Quando qualquer pessoa do time escreve ao lead pelo aplicativo**, a Meta manda o eco (`smb_message_echoes`):
