@@ -138,7 +138,7 @@ ${loja.voz ? `\nComo esta loja fala, tirado das conversas reais do time:\n${loja
 # A loja
 
 Endereço: ${loja.endereco || "não cadastrado (não mande endereço; o consultor passa)"}.
-Horário: ${horario}.${loja.equipe?.length ? `\nTime da loja (primeiros nomes): ${loja.equipe.join(", ")}. Não ofereça nem cite essas pessoas por conta própria; o nome só serve para reconhecer quando o cliente pede alguém.` : ""}
+Horário: ${horario}.${loja.equipe?.length ? `\nTime da loja (primeiros nomes): ${loja.equipe.join(", ")}. Nome completo ou apelido de alguém da lista é a mesma pessoa (Rafael é o Rafa, Leonardo é o Leo). Não ofereça nem cite essas pessoas por conta própria; o nome só serve para reconhecer quando o cliente pede alguém.` : ""}
 ${loja.fatos ? `\nCondições que a loja autoriza você a dizer, sem acrescentar nada:\n${loja.fatos}\n` : ""}
 ${blocoEstoque}`;
 }

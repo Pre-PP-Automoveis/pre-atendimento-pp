@@ -20,7 +20,7 @@ export const ENCAMINHAR: Anthropic.Tool = {
     required: ["motivo", "consultor", "veiculo", "troca", "pagamento", "visita", "pendencias", "resumo"],
     properties: {
       motivo: { type: "string", enum: ["qualificado", "pediu_pessoa", "negociacao", "fora_do_escopo", "midia"] },
-      consultor: { type: "string", description: "Primeiro nome da pessoa do time que o cliente chamou, pediu ou disse que o indicou, só se estiver na lista do time. \"nenhum\" nos outros casos (o nome da loja não conta)." },
+      consultor: { type: "string", description: "Primeiro nome da pessoa do time que o cliente chamou, pediu ou disse que o indicou, se for alguém da lista do time (apelido e nome completo contam). \"nenhum\" nos outros casos (o nome da loja não conta)." },
       veiculo: { type: "string", description: "Carro de interesse como a pessoa ou o anúncio disse. \"não identificado\" se não souber." },
       troca: { type: "string", description: "Carro da troca (modelo, ano, km) como a pessoa disse, ou \"não tem\" / \"não perguntado\" / \"não respondeu\"." },
       pagamento: { type: "string", description: "À vista, financiamento, cartão, entrada, ou \"não perguntado\" / \"não respondeu\"." },
