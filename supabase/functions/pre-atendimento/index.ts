@@ -14,6 +14,7 @@ import { ligarLoja } from "./ligacao.ts";
 import { AVISO_PADRAO, despedidaPadrao, exigirConvite, notasDaConversa, semAvisoRepetido, semFrasesFeitas, semTravessao, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 import { equipeDoPainel, painelConsultor, painelGerente } from "./painel.ts";
+import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
@@ -36,7 +37,7 @@ const corsCadastro = (origem: string | null) => ({
 const ORIGENS_PAINEL = (Deno.env.get("PAINEL_ORIGENS") ?? "").split(",").map((o) => o.trim().replace(/\/$/, "")).filter(Boolean);
 const corsPainel = (origem: string | null) => ({
   "Access-Control-Allow-Origin": origem && ORIGENS_PAINEL.includes(origem) ? origem : ORIGENS_PAINEL[0] ?? "null",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "content-type", "Vary": "Origin",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "content-type, authorization", "Vary": "Origin",
 });
 
 /* o lead costuma mandar três mensagens em sequência; o robô espera ele terminar e responde uma vez só */
@@ -58,13 +59,21 @@ type Linha = Record<string, any>;
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   /* verificação do webhook, feita uma vez no painel da Meta */
-  /* painel de leads (link pessoal de cada pessoa do time), lido pela página do painel da loja. POST: ações do gerente */
+  /* painel de leads, com usuário e senha. ?painel=entrar | sair | senha; ?painel sozinho: GET lê, POST são ações do gerente.
+     A sessão vai no cabeçalho Authorization, nunca na URL. */
   if (url.searchParams.get("painel") !== null) {
     const cabecalhos = { ...corsPainel(req.headers.get("origin")), "Content-Type": "application/json", "Cache-Control": "no-store" };
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cabecalhos });
-    const token = url.searchParams.get("painel") ?? "";
-    const r = await (req.method === "POST" ? agirPainel(token, await req.json().catch(() => ({}))) : lerPainel(token))
-      .catch((e) => ({ status: 500, corpo: { erro: String(e?.message ?? e) } }));
+    const rota = url.searchParams.get("painel") ?? "";
+    const sessao = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const corpo = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+    const r = await (
+      rota === "entrar" ? entrarNoPainel(corpo)
+      : rota === "sair" ? sairDoPainel(sessao)
+      : rota === "senha" ? trocarSenha(sessao, corpo)
+      : req.method === "POST" ? agirPainel(sessao, corpo)
+      : lerPainel(sessao)
+    ).catch((e) => ({ status: 500, corpo: { erro: String(e?.message ?? e) } }));
     return new Response(JSON.stringify(r.corpo), { status: r.status, headers: cabecalhos });
   }
 
@@ -476,22 +485,69 @@ function paramsAviso(conversa: Linha, e: Encaminhamento, prefixo: string) {
 }
 
 /* ===== painel de leads ===== */
-/* cada pessoa do time tem um link (token_painel). O de quem é gerente abre a visão da loja, com os leads dele no topo. */
-async function donoDoLink(token: string) {
-  if (token.length < 32) return null;
-  const { data: pessoa } = await admin.from("pa_vendedores").select("*").eq("token_painel", token).maybeSingle();
-  return pessoa?.ativo ? pessoa : null;
+/* cada pessoa do time entra com usuário e senha. Quem é gerente vê a loja inteira, com os leads dele no topo. */
+type Resposta = { status: number; corpo: unknown };
+const SAIU: Resposta = { status: 401, corpo: { erro: "Sua sessão terminou. Entre de novo." } };
+
+async function donoDaSessao(sessao: string) {
+  if (sessao.length < 32) return null;
+  const { data } = await admin.from("pa_sessoes").select("expira_em, pa_vendedores(*)").eq("token_hash", await resumoDoToken(sessao)).maybeSingle();
+  // deno-lint-ignore no-explicit-any
+  const pessoa = (data as any)?.pa_vendedores;
+  return data && new Date(data.expira_em).getTime() > Date.now() && pessoa?.ativo ? pessoa as Linha : null;
 }
 
-async function lerPainel(token: string): Promise<{ status: number; corpo: unknown }> {
-  const pessoa = await donoDoLink(token);
-  if (!pessoa) return { status: 403, corpo: { erro: "Link inválido ou desativado. Peça o seu link ao gerente." } };
+async function entrarNoPainel(pedido: Linha): Promise<Resposta> {
+  const recusa: Resposta = { status: 401, corpo: { erro: "Usuário ou senha incorretos." } };
+  const usuario = normalizaUsuario(String(pedido.usuario ?? ""));
+  const senha = String(pedido.senha ?? "");
+  if (!usuario || !senha || senha.length > 200) return recusa;
+  const { data: pessoa } = await admin.from("pa_vendedores").select("*").eq("usuario", usuario).maybeSingle();
+  if (!pessoa?.ativo || !pessoa.senha_hash) { await confereSenha(senha, "pbkdf2$100000$00$00"); return recusa; } // mesmo tempo de resposta
+  if (pessoa.bloqueado_ate && new Date(pessoa.bloqueado_ate).getTime() > Date.now()) {
+    return { status: 429, corpo: { erro: `Muitas tentativas erradas. Tente de novo em ${BLOQUEIO_MIN} minutos ou peça uma senha nova ao gerente.` } };
+  }
+  if (!(await confereSenha(senha, pessoa.senha_hash))) {
+    const falhas = (pessoa.falhas_login ?? 0) + 1;
+    await admin.from("pa_vendedores").update(falhas >= MAX_FALHAS
+      ? { falhas_login: 0, bloqueado_ate: new Date(Date.now() + BLOQUEIO_MIN * 60_000).toISOString() }
+      : { falhas_login: falhas }).eq("id", pessoa.id);
+    return recusa;
+  }
+  await admin.from("pa_vendedores").update({ falhas_login: 0, bloqueado_ate: null }).eq("id", pessoa.id);
+  await admin.from("pa_sessoes").delete().eq("vendedor_id", pessoa.id).lt("expira_em", new Date().toISOString());
+  const sessao = novoToken();
+  await admin.from("pa_sessoes").insert({ token_hash: await resumoDoToken(sessao), vendedor_id: pessoa.id,
+    expira_em: new Date(Date.now() + SESSAO_DIAS * 24 * 3600 * 1000).toISOString() });
+  return { status: 200, corpo: { sessao, nome: pessoa.nome } };
+}
+
+async function sairDoPainel(sessao: string): Promise<Resposta> {
+  if (sessao) await admin.from("pa_sessoes").delete().eq("token_hash", await resumoDoToken(sessao));
+  return { status: 200, corpo: { ok: true } };
+}
+
+async function trocarSenha(sessao: string, pedido: Linha): Promise<Resposta> {
+  const pessoa = await donoDaSessao(sessao);
+  if (!pessoa) return SAIU;
+  const nova = String(pedido.nova ?? "");
+  if (!(await confereSenha(String(pedido.atual ?? ""), pessoa.senha_hash))) return { status: 400, corpo: { erro: "A senha atual está errada." } };
+  if (nova.length < 6 || nova.length > 100) return { status: 400, corpo: { erro: "A senha nova precisa ter pelo menos 6 caracteres." } };
+  await admin.from("pa_vendedores").update({ senha_hash: await hashSenha(nova) }).eq("id", pessoa.id);
+  /* derruba as outras sessões: quem sabia a senha antiga sai dos outros aparelhos */
+  await admin.from("pa_sessoes").delete().eq("vendedor_id", pessoa.id).neq("token_hash", await resumoDoToken(sessao));
+  return { status: 200, corpo: { ok: true } };
+}
+
+async function lerPainel(sessao: string): Promise<Resposta> {
+  const pessoa = await donoDaSessao(sessao);
+  if (!pessoa) return SAIU;
   const { data: loja } = await admin.from("pa_lojas").select("*").eq("id", pessoa.loja_id).single();
 
   const desde = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   const [{ data: conversas }, { data: equipe }] = await Promise.all([
     admin.from("pa_conversas").select("*").eq("loja_id", loja.id).neq("estado", "encerrada").gte("ultima_msg_em", desde),
-    admin.from("pa_vendedores").select("id, nome, ativo, ordem, no_rodizio, gerente, ultimo_lead_em").eq("loja_id", loja.id),
+    admin.from("pa_vendedores").select("id, nome, usuario, ativo, ordem, no_rodizio, gerente, ultimo_lead_em").eq("loja_id", loja.id),
   ]);
   const nomes = new Map<string, string>((equipe ?? []).map((v: Linha) => [v.id, v.nome]));
   const prazo = loja.prazo_repasse_min ?? 15;
@@ -508,9 +564,10 @@ async function lerPainel(token: string): Promise<{ status: number; corpo: unknow
 }
 
 /* ações do gerente: passar um lead (inclusive para ele mesmo), ligar e desligar alguém do rodízio, marcar "não é lead" */
-async function agirPainel(token: string, pedido: Linha): Promise<{ status: number; corpo: unknown }> {
-  const gerente = await donoDoLink(token);
-  if (!gerente?.gerente) return { status: 403, corpo: { erro: "Só o gerente faz mudanças no painel." } };
+async function agirPainel(sessao: string, pedido: Linha): Promise<Resposta> {
+  const gerente = await donoDaSessao(sessao);
+  if (!gerente) return SAIU;
+  if (!gerente.gerente) return { status: 403, corpo: { erro: "Só o gerente faz mudanças no painel." } };
   const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
   const agora = new Date().toISOString();
   const quem = primeiroNome(gerente.nome);
@@ -520,6 +577,17 @@ async function agirPainel(token: string, pedido: Linha): Promise<{ status: numbe
     const { data: pessoa } = id ? await admin.from("pa_vendedores").update({ no_rodizio: !!pedido.no_rodizio })
       .eq("id", id).eq("loja_id", gerente.loja_id).select("nome").maybeSingle() : { data: null };
     return pessoa ? { status: 200, corpo: { ok: true } } : { status: 404, corpo: { erro: "Pessoa não encontrada." } };
+  }
+
+  /* quem esqueceu a senha: o gerente gera uma nova, vê uma vez e passa para a pessoa. Ela sai de todos os aparelhos. */
+  if (pedido.acao === "nova_senha") {
+    const id = uuid(pedido.vendedor_id);
+    const senha = senhaPadrao();
+    const { data: pessoa } = id ? await admin.from("pa_vendedores").update({ senha_hash: await hashSenha(senha), falhas_login: 0, bloqueado_ate: null })
+      .eq("id", id).eq("loja_id", gerente.loja_id).select("id, nome, usuario").maybeSingle() : { data: null };
+    if (!pessoa) return { status: 404, corpo: { erro: "Pessoa não encontrada." } };
+    await admin.from("pa_sessoes").delete().eq("vendedor_id", pessoa.id);
+    return { status: 200, corpo: { ok: true, nome: pessoa.nome, usuario: pessoa.usuario, senha } };
   }
 
   const id = uuid(pedido.conversa_id);

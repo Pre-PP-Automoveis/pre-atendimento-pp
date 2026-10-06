@@ -76,10 +76,10 @@ export function painelGerente(conversas: Linha[], vendedores: Map<string, string
 }
 
 /* a equipe no painel do gerente: quem está no rodízio, quem é o próximo da vez e quantos leads cada um tem esperando */
-export function equipeDoPainel(equipe: (Vendedor & { nome: string; gerente?: boolean })[], conversas: Linha[]) {
+export function equipeDoPainel(equipe: (Vendedor & { nome: string; gerente?: boolean; usuario?: string | null })[], conversas: Linha[]) {
   const proximo = proximoVendedor(equipe, [])?.id ?? null;
   return equipe.filter((v) => v.ativo).sort((a, b) => a.ordem - b.ordem).map((v) => ({
-    id: v.id, nome: v.nome, no_rodizio: v.no_rodizio !== false, gerente: !!v.gerente, proximo: v.id === proximo,
+    id: v.id, nome: v.nome, usuario: v.usuario ?? null, no_rodizio: v.no_rodizio !== false, gerente: !!v.gerente, proximo: v.id === proximo,
     esperando: conversas.filter((c) => c.vendedor_id === v.id && aguardando(c)).length,
   }));
 }

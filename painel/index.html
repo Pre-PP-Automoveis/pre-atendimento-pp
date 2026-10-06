@@ -64,6 +64,17 @@
   th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--p-apoio); }
   .aviso { background: var(--p-urg-f); color: var(--p-urg); border-radius: 10px; padding: 14px; margin: 0; }
   .nota { color: var(--p-apoio); font-size: 13px; margin: -8px 0 0; }
+  .botoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .entrar { background: var(--p-folha); border: 1px solid var(--p-fio); border-radius: 10px; padding: 18px; display: grid; gap: 14px; max-width: 420px; }
+  .entrar label { display: grid; gap: 6px; font-weight: 600; font-size: 14px; }
+  .entrar input, dialog input { min-height: 44px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--p-fio); background: var(--p-chao); color: var(--p-tinta); font: 400 16px/1.2 var(--f-corpo); }
+  .entrar .abrir, dialog .abrir { border: 0; font: 600 16px/1 var(--f-corpo); cursor: pointer; }
+  .erro { color: var(--p-urg); margin: 0; font-size: 14px; min-height: 1em; }
+  dialog { background: var(--p-folha); color: var(--p-tinta); border: 1px solid var(--p-fio); border-radius: 12px; padding: 18px; width: min(380px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog form { display: grid; gap: 12px; }
+  dialog label { display: grid; gap: 6px; font-weight: 600; font-size: 14px; }
+  dialog h2 { margin: 0; text-transform: none; letter-spacing: 0; font-size: 18px; color: var(--p-tinta); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   a:focus-visible, button:focus-visible, summary:focus-visible, select:focus-visible { outline: 2px solid var(--p-acao); outline-offset: 2px; }
 </style>
@@ -72,15 +83,32 @@
 <main class="pg">
   <header class="topo">
     <div><h1 id="titulo">Painel de leads</h1><p id="sub">Carregando</p></div>
-    <button class="som" id="som" type="button" aria-pressed="false">Ativar aviso de lead novo</button>
+    <div class="botoes" id="botoes" hidden>
+      <button class="som" id="som" type="button" aria-pressed="false">Ativar aviso de lead novo</button>
+      <button class="sutil" id="abrir-senha" type="button">Trocar senha</button>
+      <button class="sutil" id="sair" type="button">Sair</button>
+    </div>
   </header>
   <div id="conteudo" class="lista"></div>
 </main>
+<dialog id="dlg-senha">
+  <form id="form-senha">
+    <h2>Trocar senha</h2>
+    <label>Senha atual<input type="password" name="atual" autocomplete="current-password" required></label>
+    <label>Senha nova (pelo menos 6 caracteres)<input type="password" name="nova" autocomplete="new-password" minlength="6" required></label>
+    <p class="erro" id="erro-senha" role="alert"></p>
+    <div class="acoes"><button class="abrir" type="submit">Salvar</button><button class="sutil" type="button" id="fechar-senha">Cancelar</button></div>
+  </form>
+</dialog>
 <script>
 /* Painel de leads da Pedro Paulo Automóveis. Lê só o banco do pré-atendimento da PP; cada pessoa do time tem um link.
    Projeto próprio na Vercel, separado do site da Moza: um push na main publica. */
 var FUNCAO = "https://qdzuwnqejtjbtcysteip.supabase.co/functions/v1/pre-atendimento?painel=";
-var token = new URLSearchParams(location.search).get("t") || "";
+var CHAVE = "pp-painel-sessao";
+var sessao = "";
+try { sessao = localStorage.getItem(CHAVE) || ""; } catch (e) {}
+/* o link antigo com ?t= não abre mais o painel: tira da barra de endereço */
+if (location.search) { try { history.replaceState(null, "", location.pathname); } catch (e) {} }
 var conteudo = document.getElementById("conteudo");
 var dados = null, vistos = null, somLigado = false, ctx = null, ocupado = false;
 
@@ -155,8 +183,9 @@ function rodizio() {
   var linhas = dados.equipe.map(function (e) {
     var info = [e.proximo ? "próximo da vez" : "", e.esperando ? e.esperando + " esperando resposta" : ""].filter(Boolean).join(" · ");
     return '<div><span class="quem"><b>' + esc(e.nome) + (e.id === dados.eu ? " (você)" : "") + "</b>" + (info ? "<small>" + info + "</small>" : "") + "</span>" +
+      '<span class="botoes">' + (e.id === dados.eu ? "" : '<button class="sutil" type="button" data-acao="nova_senha" data-vend="' + e.id + '" data-nome="' + esc(e.nome) + '">Nova senha</button>') +
       '<button class="chave" type="button" aria-pressed="' + e.no_rodizio + '" data-acao="rodizio" data-vend="' + e.id + '" data-valor="' + !e.no_rodizio + '" data-nome="' + esc(e.nome) + '">' +
-      (e.no_rodizio ? "No rodízio" : "Fora do rodízio") + "</button></div>";
+      (e.no_rodizio ? "No rodízio" : "Fora do rodízio") + "</button></span></div>";
   }).join("");
   return "<h2>Rodízio</h2>" + (naRoda.length ? "" : '<p class="aviso">Ninguém está no rodízio. Os leads ficam parados até alguém entrar.</p>') +
     '<div class="roda">' + linhas + "</div>" +
@@ -215,12 +244,37 @@ function avisar(novos) {
   }
 }
 
+function guardarSessao(s) {
+  sessao = s || "";
+  try { if (sessao) localStorage.setItem(CHAVE, sessao); else localStorage.removeItem(CHAVE); } catch (e) {}
+}
+
+function chamar(rota, corpo) {
+  var op = { cache: "no-store", headers: { "authorization": "Bearer " + sessao } };
+  if (corpo) { op.method = "POST"; op.headers["content-type"] = "application/json"; op.body = JSON.stringify(corpo); }
+  return fetch(FUNCAO + rota, op).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); });
+}
+
+function telaDeEntrada(msg) {
+  dados = null; vistos = null; guardarSessao("");
+  document.getElementById("botoes").hidden = true;
+  document.getElementById("titulo").textContent = "Painel de leads";
+  document.getElementById("sub").textContent = "Pedro Paulo Automóveis";
+  document.title = "Leads PP Automóveis";
+  conteudo.innerHTML = '<form class="entrar" id="form-entrar">' +
+    '<label>Usuário<input name="usuario" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="seunomeppautomoveis" required></label>' +
+    '<label>Senha<input name="senha" type="password" autocomplete="current-password" required></label>' +
+    '<p class="erro" id="erro-entrar" role="alert">' + esc(msg || "") + "</p>" +
+    '<button class="abrir" type="submit">Entrar</button></form>';
+}
+
 function carregar() {
-  if (!token) { conteudo.innerHTML = '<p class="aviso">Este link está incompleto. Peça o seu link ao gerente.</p>'; document.getElementById("sub").textContent = ""; return; }
-  return fetch(FUNCAO + encodeURIComponent(token), { cache: "no-store" })
-    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+  if (!sessao) { if (!document.getElementById("form-entrar")) telaDeEntrada(); return; }
+  return chamar("")
     .then(function (res) {
+      if (res.status === 401) { telaDeEntrada(res.j.erro); return; }
       if (!res.ok) { conteudo.innerHTML = '<p class="aviso">' + esc(res.j.erro || "Não foi possível abrir o painel.") + "</p>"; return; }
+      document.getElementById("botoes").hidden = false;
       dados = res.j;
       var ids = esperando().map(function (l) { return l.id; });
       if (vistos) avisar(ids.filter(function (id) { return vistos.indexOf(id) < 0; }).length);
@@ -230,13 +284,16 @@ function carregar() {
     .catch(function () { document.getElementById("sub").textContent = "Sem conexão. Tentando de novo."; });
 }
 
-/* ações do gerente: o servidor confere que o link é de gerente */
+/* ações do gerente: o servidor confere que a sessão é de gerente */
 function agir(corpo, alvo) {
   ocupado = true;
   conteudo.querySelectorAll("button[data-acao], select[data-acao]").forEach(function (b) { b.disabled = true; });
-  fetch(FUNCAO + encodeURIComponent(token), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) })
-    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
-    .then(function (res) { if (!res.ok) alert(res.j.erro || "Não deu certo. Tente de novo."); })
+  chamar("", corpo)
+    .then(function (res) {
+      if (res.status === 401) { ocupado = false; telaDeEntrada(res.j.erro); return; }
+      if (!res.ok) { alert(res.j.erro || "Não deu certo. Tente de novo."); return; }
+      if (res.j.senha) alert("Nova senha de " + res.j.nome + "\n\nUsuário: " + res.j.usuario + "\nSenha: " + res.j.senha + "\n\nPasse só para essa pessoa. Ela pode trocar depois de entrar.");
+    })
     .catch(function () { alert("Sem conexão. Tente de novo."); })
     .then(function () { ocupado = false; if (alvo) alvo.blur(); return carregar(); });
 }
@@ -251,6 +308,8 @@ conteudo.addEventListener("click", function (ev) {
     agir({ acao: "passar", conversa_id: b.dataset.id, para: b.dataset.para });
   } else if (b.dataset.acao === "nao_e_lead") {
     if (confirm(nome + " não é lead? O robô para de responder este contato e ele sai do painel.")) agir({ acao: "nao_e_lead", conversa_id: b.dataset.id });
+  } else if (b.dataset.acao === "nova_senha") {
+    if (confirm("Gerar uma senha nova para " + nome + "? A senha atual deixa de valer e ele sai do painel nos aparelhos dele.")) agir({ acao: "nova_senha", vendedor_id: b.dataset.vend });
   } else if (b.dataset.acao === "rodizio") {
     agir({ acao: "rodizio", vendedor_id: b.dataset.vend, no_rodizio: b.dataset.valor === "true" });
   }
@@ -261,6 +320,46 @@ conteudo.addEventListener("change", function (ev) {
   if (!s.matches || !s.matches("select[data-acao='passar-para']") || !s.value) return;
   if (confirm("Passar " + s.getAttribute("data-nome") + " para " + nomeDe(s.value) + "?")) agir({ acao: "passar", conversa_id: s.dataset.id, para: s.value }, s);
   else { s.value = ""; s.blur(); }
+});
+
+conteudo.addEventListener("submit", function (ev) {
+  if (ev.target.id !== "form-entrar") return;
+  ev.preventDefault();
+  var f = ev.target, botao = f.querySelector("button");
+  botao.disabled = true;
+  fetch(FUNCAO + "entrar", { method: "POST", cache: "no-store", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ usuario: f.usuario.value, senha: f.senha.value }) })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (res) {
+      if (!res.ok) { document.getElementById("erro-entrar").textContent = res.j.erro || "Não deu certo."; botao.disabled = false; return; }
+      guardarSessao(res.j.sessao);
+      conteudo.innerHTML = "";
+      carregar();
+    })
+    .catch(function () { document.getElementById("erro-entrar").textContent = "Sem conexão. Tente de novo."; botao.disabled = false; });
+});
+
+document.getElementById("sair").addEventListener("click", function () {
+  var s = sessao;
+  telaDeEntrada();
+  fetch(FUNCAO + "sair", { method: "POST", headers: { "authorization": "Bearer " + s, "content-type": "application/json" }, body: "{}" }).catch(function () {});
+});
+
+var dlg = document.getElementById("dlg-senha");
+document.getElementById("abrir-senha").addEventListener("click", function () { document.getElementById("form-senha").reset(); document.getElementById("erro-senha").textContent = ""; dlg.showModal(); });
+document.getElementById("fechar-senha").addEventListener("click", function () { dlg.close(); });
+document.getElementById("form-senha").addEventListener("submit", function (ev) {
+  ev.preventDefault();
+  var f = ev.target;
+  fetch(FUNCAO + "senha", { method: "POST", cache: "no-store", headers: { "authorization": "Bearer " + sessao, "content-type": "application/json" },
+    body: JSON.stringify({ atual: f.atual.value, nova: f.nova.value }) })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
+    .then(function (res) {
+      if (res.status === 401) { dlg.close(); telaDeEntrada(res.j.erro); return; }
+      if (!res.ok) { document.getElementById("erro-senha").textContent = res.j.erro || "Não deu certo."; return; }
+      dlg.close(); alert("Senha trocada.");
+    })
+    .catch(function () { document.getElementById("erro-senha").textContent = "Sem conexão. Tente de novo."; });
 });
 
 document.getElementById("som").addEventListener("click", function () {
