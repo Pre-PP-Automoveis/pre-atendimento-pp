@@ -6,22 +6,26 @@
 <title>Leads PP Automóveis</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#F3F5F4">
+<meta name="theme-color" content="#1F2022">
 <link rel="icon" href="data:,">
 <style>
-  :root { --f-corpo: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; --f-display: var(--f-corpo); --p-chao:#F3F5F4; --p-folha:#FFFFFF; --p-tinta:#15201C; --p-apoio:#5B6863; --p-fio:#D9DFDC; --p-acao:#0071AD;
-          --p-vez:#0F7B5C; --p-vez-f:#E1F3EB; --p-urg:#B3261E; --p-urg-f:#FBE7E5; --p-meio:#9A5B00; --p-meio-f:#FFF1D6; }
-  @media (prefers-color-scheme: dark) { :root { --f-corpo: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; --f-display: var(--f-corpo); --p-chao:#0F1513; --p-folha:#18201D; --p-tinta:#E4EBE8; --p-apoio:#9AA7A2; --p-fio:#2A3430;
-          --p-acao:#5CBDF5; --p-vez:#5ACCA2; --p-vez-f:#16302A; --p-urg:#F2837A; --p-urg-f:#3A1D1B; --p-meio:#F2BE6B; --p-meio-f:#3A2E16; color-scheme: dark; } }
+  /* cores da PP, amostradas do logo PP37: grafite, cinza e o vermelho #B81111. O logo pede grafite médio, não preto chapado.
+     Vermelho de texto é mais claro (#FF5A5F) para ler sobre o grafite; o #B81111 vai em fundo de botão e em marca. */
+  :root { --f-corpo: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; --f-display: var(--f-corpo);
+          --p-chao:#1F2022; --p-folha:#2A2C2F; --p-tinta:#F2F2F3; --p-apoio:#9B9C9E; --p-fio:#3D3F43;
+          --p-marca:#B81111; --p-acao:#FF5A5F; --p-vez:#B81111; --p-vez-f:#3A3C40;
+          --p-urg:#FF5A5F; --p-urg-f:#3F1B1D; --p-meio:#FFB3B5; --p-meio-f:#5C1517; color-scheme: dark; }
   html, body { background: var(--p-chao); color: var(--p-tinta); }
-  body { margin: 0; font: 400 15px/1.5 var(--f-corpo, 'Manrope', system-ui, sans-serif); padding-inline: 16px; padding-block: 18px 48px; }
+  body { border-top: 4px solid var(--p-marca); margin: 0; font: 400 15px/1.5 var(--f-corpo, 'Manrope', system-ui, sans-serif); padding-inline: 16px; padding-block: 18px 48px; }
   .pg { max-width: 760px; margin: 0 auto; display: grid; gap: 18px; }
   .pg > * { min-width: 0; }
   .topo { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+  .logo { display: block; width: 150px; height: auto; margin: 0 0 10px; }
   .topo h1 { margin: 0; font: 500 clamp(24px, 6vw, 32px)/1.1 var(--f-display, 'Jost', sans-serif); }
   .topo p { margin: 4px 0 0; color: var(--p-apoio); font-size: 13px; }
   .som { font: 600 13px/1 var(--f-corpo, sans-serif); color: var(--p-acao); background: none; border: 1px solid var(--p-fio); border-radius: 6px; padding: 9px 12px; cursor: pointer; min-height: 44px; }
-  .som[aria-pressed="true"] { color: var(--p-vez); border-color: var(--p-vez); }
+  .som[aria-pressed="true"] { color: var(--p-tinta); background: var(--p-marca); border-color: var(--p-marca); }
+  h2::before { content: ""; width: 4px; height: 14px; background: var(--p-marca); border-radius: 2px; }
   h2 { margin: 6px 0 0; font: 600 15px/1.2 var(--f-corpo, sans-serif); letter-spacing: .04em; text-transform: uppercase; color: var(--p-apoio); display: flex; gap: 8px; align-items: center; }
   h2 .n { background: var(--p-fio); color: var(--p-tinta); border-radius: 999px; padding: 2px 8px; font-size: 12px; letter-spacing: 0; }
   .lista { display: grid; gap: 10px; }
@@ -31,8 +35,8 @@
   .card.urg { border-left: 5px solid var(--p-urg); background: linear-gradient(0deg, var(--p-urg-f), var(--p-urg-f)); }
   .linha1 { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
   .nome { font: 600 17px/1.25 var(--f-corpo, sans-serif); }
-  .tempo { font: 600 13px/1 var(--f-corpo, sans-serif); padding: 5px 8px; border-radius: 999px; background: var(--p-vez-f); color: var(--p-vez); white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .tempo.urg { background: var(--p-urg-f); color: var(--p-urg); }
+  .tempo { font: 600 13px/1 var(--f-corpo, sans-serif); padding: 5px 8px; border-radius: 999px; background: var(--p-vez-f); color: var(--p-tinta); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .tempo.urg { background: var(--p-marca); color: #fff; }
   .tempo.meio { background: var(--p-meio-f); color: var(--p-meio); }
   .carro { color: var(--p-tinta); }
   .det { display: grid; grid-template-columns: max-content minmax(0,1fr); gap: 2px 10px; font-size: 14px; color: var(--p-apoio); margin: 0; }
@@ -57,7 +61,7 @@
   .roda .quem { display: grid; }
   .roda .quem small { color: var(--p-apoio); font-size: 13px; }
   .chave { min-height: 44px; min-width: 120px; border-radius: 999px; border: 1px solid var(--p-fio); background: var(--p-chao); color: var(--p-apoio); font: 600 14px/1 var(--f-corpo, sans-serif); cursor: pointer; padding: 0 14px; }
-  .chave[aria-pressed="true"] { background: var(--p-vez-f); color: var(--p-vez); border-color: var(--p-vez); }
+  .chave[aria-pressed="true"] { background: var(--p-marca); color: #fff; border-color: var(--p-marca); }
   .placar { overflow-x: auto; background: var(--p-folha); border: 1px solid var(--p-fio); border-radius: 10px; }
   table { border-collapse: collapse; width: 100%; min-width: 460px; font-size: 14px; font-variant-numeric: tabular-nums; }
   th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--p-fio); }
@@ -85,8 +89,8 @@
   .conversa { display: grid; gap: 8px; max-height: 70vh; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
   .conversa li { border-radius: 10px; padding: 8px 12px; background: var(--p-chao); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
   .conversa li small { display: block; color: var(--p-apoio); font-size: 12px; font-weight: 600; margin-bottom: 2px; }
-  .conversa li.robo { background: var(--p-vez-f); }
-  .conversa li.vendedor { background: var(--p-meio-f); }
+  .conversa li.robo { background: #3A2224; }
+  .conversa li.vendedor { background: var(--p-vez-f); }
   .conversa li.sistema { background: none; border: 1px dashed var(--p-fio); color: var(--p-apoio); font-size: 13px; }
   #dlg-conversa { width: min(640px, calc(100vw - 32px)); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -96,7 +100,7 @@
 <body>
 <main class="pg">
   <header class="topo">
-    <div><h1 id="titulo">Painel de leads</h1><p id="sub">Carregando</p></div>
+    <div><img class="logo" src="/logo-pp.png" alt="PP37 Pedro Paulo Automóveis" width="150" height="48"><h1 id="titulo">Painel de leads</h1><p id="sub">Carregando</p></div>
     <div class="botoes" id="botoes" hidden>
       <button class="som" id="som" type="button" aria-pressed="false">Ativar aviso de lead novo</button>
       <button class="sutil" id="abrir-senha" type="button">Trocar senha</button>
@@ -183,7 +187,7 @@ function cardVez(l, mostrarConsultor) {
 function cardCurto(l, extra) {
   return '<article class="card"><div class="linha1"><span class="nome">' + esc(l.nome) + '</span><span class="fone">' + extra + "</span></div>" +
     '<div class="carro">' + esc(l.carro) + (l.consultor ? " · com " + esc(l.consultor) : "") + "</div>" +
-    '<div class="acoes"><a class="btn" href="' + esc(l.whatsapp_link) + '" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center">Ver conversa</a>' + acoesGerente(l) + "</div></article>";
+    '<div class="acoes"><a class="btn" href="' + esc(l.whatsapp_link) + '" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center;height:44px;box-sizing:border-box">Ver conversa</a>' + acoesGerente(l) + "</div></article>";
 }
 
 function mini(l, extra) {
