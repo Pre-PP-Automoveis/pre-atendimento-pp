@@ -16,6 +16,12 @@
           --p-marca:#B81111; --p-acao:#FF5A5F; --p-vez:#B81111; --p-vez-f:#3A3C40;
           --p-urg:#FF5A5F; --p-urg-f:#3F1B1D; --p-meio:#FFB3B5; --p-meio-f:#5C1517; color-scheme: dark; }
   html, body { background: var(--p-chao); color: var(--p-tinta); }
+  /* barra de rolagem no vermelho da PP, em toda área que rola (página, tabelas, conversa) */
+  * { scrollbar-color: var(--p-marca) var(--p-chao); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--p-chao); }
+  ::-webkit-scrollbar-thumb { background: var(--p-marca); border-radius: 999px; border: 2px solid var(--p-chao); }
+  ::-webkit-scrollbar-thumb:hover { background: #D41A1A; }
   body { border-top: 4px solid var(--p-marca); margin: 0; font: 400 15px/1.5 var(--f-corpo, 'Manrope', system-ui, sans-serif); padding-inline: 16px; padding-block: 18px 48px; }
   .pg { max-width: 760px; margin: 0 auto; display: grid; gap: 18px; }
   .pg > * { min-width: 0; }
