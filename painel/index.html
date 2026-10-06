@@ -231,7 +231,7 @@ function blocoAdmin(a) {
     '<div class="' + (s.erros_24h ? "ruim" : "") + '"><small>Erros em 24 h</small><b>' + s.erros_24h + "</b></div></div>";
   var linhas = [["Conversas", "conversas"], ["Passadas ao time", "encaminhadas"], ["Respondidas pelo time", "atendidas"], ["Sem resposta agora", "sem_resposta"],
     ["Repasses", "repasses"], ["Rodízio esgotado", "escalados"]];
-  html += '<div class="placar"><table><thead><tr><th></th><th>Hoje</th><th>7 dias</th></tr></thead><tbody>' +
+  html += '<div class="placar"><table style="min-width:0"><thead><tr><th></th><th>Hoje</th><th>7 dias</th></tr></thead><tbody>' +
     linhas.map(function (l) { return "<tr><td>" + l[0] + "</td><td>" + a.hoje[l[1]] + "</td><td>" + a.semana[l[1]] + "</td></tr>"; }).join("") +
     "<tr><td>Tempo até o time responder</td><td>" + (a.hoje.minutos_ate_responder == null ? "" : a.hoje.minutos_ate_responder + " min") + "</td><td>" + (a.semana.minutos_ate_responder == null ? "" : a.semana.minutos_ate_responder + " min") + "</td></tr>" +
     "<tr><td>Custo do robô</td><td>" + dolar(a.hoje.custo_usd) + "</td><td>" + dolar(a.semana.custo_usd) + "</td></tr></tbody></table></div>" +

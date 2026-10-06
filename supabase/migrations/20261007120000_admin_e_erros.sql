@@ -1,4 +1,4 @@
--- Acesso de administrador da Moza (Kauan, 07/10/2026): vê tudo o que o gerente vê, mais a saúde do sistema, os erros,
+-- Acesso de administrador da Moza (Kauan, 06/10/2026): vê tudo o que o gerente vê, mais a saúde do sistema, os erros,
 -- os números e custos e a conversa inteira de cada lead. É invisível para o time: fora do rodízio, fora da lista de
 -- "passar para", o robô não reconhece o nome e o gerente não mexe na senha dele.
 alter table pa_vendedores add column if not exists admin boolean not null default false;
