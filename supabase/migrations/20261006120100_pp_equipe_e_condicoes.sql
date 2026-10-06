@@ -1,11 +1,11 @@
 -- Pedro Paulo: equipe e condições confirmadas pelo Leo (Kauan, 06/10/2026).
--- No rodízio: Ryan, Daniel, Rafa e Leo. Fora (recebem o que for pedido pelo nome ou passado pelo Leo):
+-- No rodízio: Rayan, Daniel, Rafa e Leo. Fora (recebem o que for pedido pelo nome ou passado pelo Leo):
 -- Brendon (vendedor de rua), Keila (financeiro) e Pedro (dono, atende os próprios clientes e as indicações).
 -- O Leo liga e desliga quem está no rodízio pelo painel dele.
 insert into pa_vendedores (loja_id, nome, ordem, no_rodizio, gerente)
 select l.id, v.nome, v.ordem, v.no_rodizio, v.gerente
 from pa_lojas l, (values
-  ('Ryan', 1, true, false), ('Daniel', 2, true, false), ('Rafa', 3, true, false), ('Leo', 4, true, true),
+  ('Rayan', 1, true, false), ('Daniel', 2, true, false), ('Rafa', 3, true, false), ('Leo', 4, true, true),
   ('Brendon', 5, false, false), ('Keila', 6, false, false), ('Pedro', 7, false, false)
 ) as v(nome, ordem, no_rodizio, gerente)
 where l.slug = 'pp-automoveis'
