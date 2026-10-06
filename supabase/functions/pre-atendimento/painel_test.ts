@@ -52,3 +52,22 @@ Deno.test("equipe do gerente mostra o próximo da vez e quem está fora do rodí
   const e = equipeDoPainel(equipe, conversas);
   assertEquals(e.map((x) => [x.id, x.proximo, x.no_rodizio, x.esperando]), [["rafa", false, true, 2], ["paulo", true, true, 1], ["keila", false, false, 0]]);
 });
+
+import { painelAdmin } from "./painel.ts";
+Deno.test("admin vê saúde, números do dia e da semana, custo por conversa e erros das últimas 24h", () => {
+  const msgs = [
+    { conversa_id: "a", autor: "lead", custo_usd: null }, { conversa_id: "a", autor: "robo", custo_usd: 0.012 },
+    { conversa_id: "d", autor: "robo", custo_usd: 0.03 }, { conversa_id: "d", autor: "vendedor", custo_usd: null },
+  ];
+  const conversasComMotivo = conversas.map((c) => ({ ...c, resumo: { ...c.resumo, motivo: c.id === "e" ? undefined : "qualificado" } }));
+  const a = painelAdmin({
+    conversas: conversasComMotivo, mensagens: msgs, vendedores: vend, lojaAtiva: false, inicioDoDia: em(35), agora,
+    erros: [{ onde: "claude", vezes: 3, ultimo_em: em(60) }, { onde: "fila", vezes: 9, ultimo_em: em(60 * 30) }],
+    saude: [{ chave: "cron", em: em(2) }],
+  });
+  assertEquals([a.saude.minutos_desde_cron, a.saude.minutos_desde_webhook, a.saude.erros_24h], [2, null, 3]);
+  assertEquals([a.semana.conversas, a.semana.atendidas, a.semana.sem_resposta, a.semana.repasses, a.semana.custo_usd], [5, 1, 3, 1, 0.042]);
+  assertEquals(a.hoje.conversas, 5);
+  assertEquals(a.semana.motivos, { qualificado: 4 });
+  assertEquals(a.conversas.find((c) => c.id === "d")!.falas, { lead: 0, robo: 1, time: 1 });
+});

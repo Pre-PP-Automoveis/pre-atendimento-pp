@@ -13,7 +13,7 @@ import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "
 import { ligarLoja } from "./ligacao.ts";
 import { AVISO_PADRAO, despedidaPadrao, exigirConvite, notasDaConversa, semAvisoRepetido, semFrasesFeitas, semTravessao, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
-import { equipeDoPainel, painelConsultor, painelGerente } from "./painel.ts";
+import { equipeDoPainel, painelAdmin, painelConsultor, painelGerente } from "./painel.ts";
 import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
@@ -49,6 +49,17 @@ const REABRE_COM_HUMANO_MS = 30 * 24 * 3600 * 1000;
 /* intervalo mínimo entre dois lembretes de "já está com o vendedor" para o mesmo lead */
 const LEMBRETE_MS = 30 * 60 * 1000;
 
+/* erro vai para o log da função e para pa_erros, agrupado: o admin vê no painel o que falhou, onde e quantas vezes */
+async function registrarErro(onde: string, e: unknown, lojaId: string | null = null, conversaId: string | null = null) {
+  const mensagem = String((e as Error)?.message ?? e);
+  console.error(onde, conversaId ?? "", mensagem);
+  try {
+    await admin.rpc("pa_registra_erro", { p_loja: lojaId, p_onde: onde, p_conversa: conversaId, p_mensagem: mensagem });
+  } catch (falha) { console.error("pa_erros", falha); }
+}
+const bater = (chave: string, detalhe: unknown = null) =>
+  admin.from("pa_saude").upsert({ chave, em: new Date().toISOString(), detalhe }).then(() => {}, () => {});
+
 const primeiroNome = (s: string | null | undefined) => (s || "").trim().split(/\s+/)[0] || "";
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -71,6 +82,7 @@ Deno.serve(async (req) => {
       rota === "entrar" ? entrarNoPainel(corpo)
       : rota === "sair" ? sairDoPainel(sessao)
       : rota === "senha" ? trocarSenha(sessao, corpo)
+      : rota === "conversa" ? lerConversa(sessao, url.searchParams.get("id") ?? "")
       : req.method === "POST" ? agirPainel(sessao, corpo)
       : lerPainel(sessao)
     ).catch((e) => ({ status: 500, corpo: { erro: String(e?.message ?? e) } }));
@@ -134,6 +146,7 @@ Deno.serve(async (req) => {
     const tiradosDoRobo = await tirarDoRobo();
     const despachados = await despacharFila();
     const repasse = await repassar();
+    await bater("cron", { tiradosDoRobo, despachados, ...repasse });
     return new Response(JSON.stringify({ tiradosDoRobo, despachados, ...repasse }), { headers: { "Content-Type": "application/json" } });
   }
 
@@ -142,7 +155,7 @@ Deno.serve(async (req) => {
     return new Response("assinatura inválida", { status: 401 });
   }
   /* a Meta reenvia o que não recebe 200 rápido: responde já e trabalha em segundo plano */
-  EdgeRuntime.waitUntil(processarPayload(JSON.parse(corpo)).catch((e) => console.error("payload", e)));
+  EdgeRuntime.waitUntil(Promise.all([bater("webhook"), processarPayload(JSON.parse(corpo)).catch((e) => registrarErro("payload", e))]));
   return new Response("ok");
 });
 
@@ -158,11 +171,11 @@ async function processarPayload(payload: Linha) {
       if (!loja) { console.warn("número sem loja ativa", phoneNumberId); continue; }
       /* eco primeiro: se o vendedor escreveu no mesmo lote em que o lead, o robô já precisa saber que saiu */
       for (const eco of ecos) {
-        await tratarEco(loja, eco).catch((e) => console.error("eco", eco.id, e));
+        await tratarEco(loja, eco).catch((e) => registrarErro("eco", e, loja.id));
       }
       const nomes = Object.fromEntries((v.contacts ?? []).map((c: Linha) => [c.wa_id, c.profile?.name]));
       for (const msg of mensagens) {
-        await tratarMensagem(loja, msg, nomes[msg.from] ?? null).catch((e) => console.error("mensagem", msg.id, e));
+        await tratarMensagem(loja, msg, nomes[msg.from] ?? null).catch((e) => registrarErro("mensagem", e, loja.id));
       }
     }
   }
@@ -308,7 +321,7 @@ async function responder(loja: Linha, conversaId: string) {
     textos = turno.textos; custo = turno.custo; encaminhado = turno.encaminhado;
   } catch (e) {
     /* contingência do item 4.6: o lead não fica sem resposta e a conversa vai para uma pessoa */
-    console.error("claude", conversaId, e);
+    await registrarErro("claude", e, loja.id, conversaId);
     encaminhado ??= await encaminhar(loja, conversa, { motivo: "fora_do_escopo", consultor: "nenhum", veiculo: conversa.origem_detalhe?.veiculo_texto || "não identificado",
       troca: "não perguntado", pagamento: "não perguntado", visita: "não perguntado", pendencias: "nenhuma",
       resumo: "O robô ficou indisponível no meio do atendimento; retome a conversa do começo." });
@@ -337,7 +350,7 @@ async function responder(loja: Linha, conversaId: string) {
 
 /* primeiros nomes de quem está ativo no time, para o robô reconhecer quando o cliente pede alguém */
 async function nomesDaEquipe(lojaId: string) {
-  const { data } = await admin.from("pa_vendedores").select("nome").eq("loja_id", lojaId).eq("ativo", true).order("ordem");
+  const { data } = await admin.from("pa_vendedores").select("nome").eq("loja_id", lojaId).eq("ativo", true).eq("admin", false).order("ordem");
   return (data ?? []).map((v: Linha) => primeiroNome(v.nome)).filter(Boolean);
 }
 
@@ -345,7 +358,7 @@ async function nomesDaEquipe(lojaId: string) {
    para o lead não cair de madrugada no celular de quem estiver na vez e o SLA contar a partir do horário comercial.
    Cliente que pediu alguém do time pelo nome vai para essa pessoa, dentro ou fora do rodízio. */
 async function encaminhar(loja: Linha, conversa: Linha, e: Encaminhamento): Promise<Resultado> {
-  const { data: equipe } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id);
+  const { data: equipe } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id).eq("admin", false);
   const pedida = pessoaPedida(equipe ?? [], e.consultor);
   const dono = pedida ? { vendedor_id: pedida.id, fixado_por: "lead" } : {};
   const horario = situacaoHorario(loja.horario ?? {});
@@ -371,7 +384,7 @@ async function tirarDoRobo() {
         troca: "ver na conversa", pagamento: "ver na conversa", visita: "ver na conversa", pendencias: "ver na conversa",
         resumo: `Triagem não terminou em ${loja.prazo_robo_min ?? 15} min; a conversa inteira está no WhatsApp da loja.`,
       }).catch((err) => ({ ok: false, erro: String(err) }) as Resultado);
-      if (r.ok) total++; else console.error("robo", conversa.id, r.erro);
+      if (r.ok) total++; else await registrarErro("tirar do robô", r.erro, loja.id, conversa.id);
     }
   }
   return total;
@@ -388,7 +401,7 @@ async function despacharFila() {
     for (const conversa of fila ?? []) {
       const r = await avisarVendedor(loja, conversa).catch((err) => ({ ok: false, erro: String(err) }));
       if (r.ok) total++;
-      else console.error("fila", conversa.id, r.erro);
+      else await registrarErro("fila", r.erro, loja.id, conversa.id);
     }
   }
   return total;
@@ -408,7 +421,7 @@ async function repassar() {
       if (!venceuPrazo(conversa, loja.prazo_repasse_min ?? 60)) continue;
       if (proximoVendedor(equipe ?? [], conversa.tentativas ?? [])) {
         const r = await avisarVendedor(loja, conversa).catch((err) => ({ ok: false, erro: String(err) }));
-        if (r.ok) repassados++; else console.error("repasse", conversa.id, r.erro);
+        if (r.ok) repassados++; else await registrarErro("repasse", r.erro, loja.id, conversa.id);
       } else if (await escalarGerente(loja, conversa)) escalados++;
     }
   }
@@ -470,7 +483,7 @@ async function escalarGerente(loja: Linha, conversa: Linha) {
     await enviarAvisoVendedor(loja.phone_number_id, loja.gerente_whatsapp, loja.template_aviso_vendedor,
       paramsAviso(conversa, conversa.resumo as Encaminhamento, "Ninguém do rodízio respondeu este lead."));
   } catch (err) {
-    console.error("gerente", conversa.id, err);
+    await registrarErro("aviso ao gerente", err, loja.id, conversa.id);
     return false;
   }
   await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema", texto: `rodízio esgotado: gerente ${loja.gerente_nome ?? ""} avisado`.trim() });
@@ -551,7 +564,7 @@ async function lerPainel(sessao: string): Promise<Resposta> {
   const desde = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   const [{ data: conversas }, { data: equipe }] = await Promise.all([
     admin.from("pa_conversas").select("*").eq("loja_id", loja.id).neq("estado", "encerrada").gte("ultima_msg_em", desde),
-    admin.from("pa_vendedores").select("id, nome, usuario, ativo, ordem, no_rodizio, gerente, ultimo_lead_em").eq("loja_id", loja.id),
+    admin.from("pa_vendedores").select("id, nome, usuario, ativo, ordem, no_rodizio, gerente, admin, ultimo_lead_em").eq("loja_id", loja.id),
   ]);
   const nomes = new Map<string, string>((equipe ?? []).map((v: Linha) => [v.id, v.nome]));
   const prazo = loja.prazo_repasse_min ?? 15;
@@ -563,8 +576,38 @@ async function lerPainel(sessao: string): Promise<Resposta> {
   return { status: 200, corpo: {
     ...cabecalho, quem: "gerente", voce: meus,
     ...painelGerente(conversas ?? [], nomes, prazo, Date.now(), inicioDoDia),
-    equipe: equipeDoPainel(equipe ?? [], conversas ?? []),
+    equipe: equipeDoPainel((equipe ?? []).filter((v: Linha) => !v.admin), conversas ?? []),
+    ...(pessoa.admin ? { admin: await dadosDoAdmin(loja, nomes, inicioDoDia) } : {}),
   } };
+}
+
+/* administrador da Moza: saúde, erros, números e conversas da semana */
+async function dadosDoAdmin(loja: Linha, nomes: Map<string, string>, inicioDoDia: string) {
+  const desde = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+  const [{ data: conversas }, { data: erros }, { data: saude }] = await Promise.all([
+    admin.from("pa_conversas").select("*").eq("loja_id", loja.id).gte("iniciada_em", desde).order("iniciada_em", { ascending: false }).limit(300),
+    admin.from("pa_erros").select("onde, conversa_id, mensagem, vezes, primeiro_em, ultimo_em").or(`loja_id.eq.${loja.id},loja_id.is.null`)
+      .gte("ultimo_em", desde).order("ultimo_em", { ascending: false }).limit(50),
+    admin.from("pa_saude").select("chave, em, detalhe"),
+  ]);
+  const ids = (conversas ?? []).map((c: Linha) => c.id);
+  const { data: mensagens } = ids.length
+    ? await admin.from("pa_mensagens").select("conversa_id, autor, custo_usd").in("conversa_id", ids)
+    : { data: [] };
+  return painelAdmin({ conversas: conversas ?? [], mensagens: mensagens ?? [], erros: erros ?? [], saude: saude ?? [], vendedores: nomes, lojaAtiva: !!loja.ativo, inicioDoDia });
+}
+
+/* a conversa inteira de um lead, com as mensagens do sistema (encaminhamento, repasse, erros), só para o admin */
+async function lerConversa(sessao: string, id: string): Promise<Resposta> {
+  const pessoa = await donoDaSessao(sessao);
+  if (!pessoa) return SAIU;
+  if (pessoa.trocar_senha) return TROCAR;
+  if (!pessoa.admin) return { status: 403, corpo: { erro: "Só o administrador abre a conversa inteira." } };
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { status: 404, corpo: { erro: "Conversa não encontrada." } };
+  const { data: conversa } = await admin.from("pa_conversas").select("*").eq("id", id).eq("loja_id", pessoa.loja_id).maybeSingle();
+  if (!conversa) return { status: 404, corpo: { erro: "Conversa não encontrada." } };
+  const { data: mensagens } = await admin.from("pa_mensagens").select("autor, tipo, texto, custo_usd, criado_em").eq("conversa_id", id).order("id");
+  return { status: 200, corpo: { conversa, mensagens: mensagens ?? [] } };
 }
 
 /* ações do gerente: passar um lead (inclusive para ele mesmo), ligar e desligar alguém do rodízio, marcar "não é lead" */
@@ -580,7 +623,7 @@ async function agirPainel(sessao: string, pedido: Linha): Promise<Resposta> {
   if (pedido.acao === "rodizio") {
     const id = uuid(pedido.vendedor_id);
     const { data: pessoa } = id ? await admin.from("pa_vendedores").update({ no_rodizio: !!pedido.no_rodizio })
-      .eq("id", id).eq("loja_id", gerente.loja_id).select("nome").maybeSingle() : { data: null };
+      .eq("id", id).eq("loja_id", gerente.loja_id).eq("admin", false).select("nome").maybeSingle() : { data: null };
     return pessoa ? { status: 200, corpo: { ok: true } } : { status: 404, corpo: { erro: "Pessoa não encontrada." } };
   }
 
@@ -590,7 +633,7 @@ async function agirPainel(sessao: string, pedido: Linha): Promise<Resposta> {
     const id = uuid(pedido.vendedor_id);
     const senha = senhaPadrao();
     const { data: pessoa } = id ? await admin.from("pa_vendedores").update({ senha_hash: await hashSenha(senha), trocar_senha: true, falhas_login: 0, bloqueado_ate: null })
-      .eq("id", id).eq("loja_id", gerente.loja_id).select("id, nome, usuario").maybeSingle() : { data: null };
+      .eq("id", id).eq("loja_id", gerente.loja_id).eq("admin", false).select("id, nome, usuario").maybeSingle() : { data: null };
     if (!pessoa) return { status: 404, corpo: { erro: "Pessoa não encontrada." } };
     await admin.from("pa_sessoes").delete().eq("vendedor_id", pessoa.id);
     return { status: 200, corpo: { ok: true, nome: pessoa.nome, usuario: pessoa.usuario, senha } };
@@ -602,7 +645,7 @@ async function agirPainel(sessao: string, pedido: Linha): Promise<Resposta> {
 
   if (pedido.acao === "passar") {
     const paraId = uuid(pedido.para);
-    const { data: para } = paraId ? await admin.from("pa_vendedores").select("*").eq("id", paraId).eq("loja_id", gerente.loja_id).eq("ativo", true).maybeSingle() : { data: null };
+    const { data: para } = paraId ? await admin.from("pa_vendedores").select("*").eq("id", paraId).eq("loja_id", gerente.loja_id).eq("ativo", true).eq("admin", false).maybeSingle() : { data: null };
     if (!para) return { status: 404, corpo: { erro: "Pessoa não encontrada." } };
     const tentativas: string[] = conversa.tentativas ?? [];
     /* com o robô ou na fila da noite: o robô sai da conversa na hora e quem recebe continua pelo aplicativo */

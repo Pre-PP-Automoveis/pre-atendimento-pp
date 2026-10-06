@@ -9,7 +9,7 @@ set -euo pipefail
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
 PAINEL="${PAINEL_URL:-https://pp-painel-leads.vercel.app}"
 SR=$("$RAIZ/scripts/supabase.sh" projects api-keys --project-ref qdzuwnqejtjbtcysteip 2>/dev/null | awk '/service_role/{print $NF}')
-SAIDA="$HOME/.config/pre-atendimento-pp/acessos-painel.txt"
+SAIDA="${SAIDA_PAINEL:-$HOME/.config/pre-atendimento-pp/acessos-painel.txt}"
 umask 077
 mkdir -p "$(dirname "$SAIDA")"
 SR="$SR" PAINEL="$PAINEL" SAIDA="$SAIDA" QUEM="${1:-}" python3 - <<'PY'
@@ -24,7 +24,7 @@ def pedir(metodo, caminho, corpo=None):
         txt = r.read().decode()
         return json.loads(txt) if txt else None
 
-equipe = pedir("GET", "/pa_vendedores?select=id,nome,usuario,gerente,no_rodizio,senha_hash,pa_lojas!inner(slug)&pa_lojas.slug=eq.pp-automoveis&ativo=eq.true&order=ordem")
+equipe = pedir("GET", "/pa_vendedores?select=id,nome,usuario,gerente,admin,no_rodizio,senha_hash,pa_lojas!inner(slug)&pa_lojas.slug=eq.pp-automoveis&ativo=eq.true&order=ordem")
 if QUEM == "--todas": alvo = equipe
 elif QUEM: alvo = [v for v in equipe if v["nome"].lower() == QUEM.lower()]
 else: alvo = [v for v in equipe if not v["senha_hash"]]
@@ -37,7 +37,7 @@ for v in alvo:
     h = "pbkdf2$100000$%s$%s" % (sal, hashlib.pbkdf2_hmac("sha256", senha.encode(), bytes.fromhex(sal), 100000).hex())
     pedir("PATCH", "/pa_vendedores?id=eq." + v["id"], {"senha_hash": h, "trocar_senha": True, "falhas_login": 0, "bloqueado_ate": None})
     pedir("DELETE", "/pa_sessoes?vendedor_id=eq." + v["id"])
-    papel = "gerente, vê a loja inteira" if v["gerente"] else ("no rodízio" if v["no_rodizio"] else "fora do rodízio")
+    papel = "administrador da Moza" if v.get("admin") else "gerente, vê a loja inteira" if v["gerente"] else ("no rodízio" if v["no_rodizio"] else "fora do rodízio")
     linhas.append("%s (%s)\n  usuário: %s\n  senha:   %s" % (v["nome"], papel, v["usuario"], senha))
 
 agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")

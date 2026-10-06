@@ -76,6 +76,19 @@
   dialog form { display: grid; gap: 12px; }
   dialog label { display: grid; gap: 6px; font-weight: 600; font-size: 14px; }
   dialog h2 { margin: 0; text-transform: none; letter-spacing: 0; font-size: 18px; color: var(--p-tinta); }
+  .saude { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .saude > div { background: var(--p-folha); border: 1px solid var(--p-fio); border-radius: 10px; padding: 12px; min-width: 0; }
+  .saude b { display: block; font-size: 18px; }
+  .saude small { color: var(--p-apoio); font-size: 13px; }
+  .saude .ruim { border-color: var(--p-urg); background: var(--p-urg-f); }
+  .saude .ruim b { color: var(--p-urg); }
+  .conversa { display: grid; gap: 8px; max-height: 70vh; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+  .conversa li { border-radius: 10px; padding: 8px 12px; background: var(--p-chao); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+  .conversa li small { display: block; color: var(--p-apoio); font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+  .conversa li.robo { background: var(--p-vez-f); }
+  .conversa li.vendedor { background: var(--p-meio-f); }
+  .conversa li.sistema { background: none; border: 1px dashed var(--p-fio); color: var(--p-apoio); font-size: 13px; }
+  #dlg-conversa { width: min(640px, calc(100vw - 32px)); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   a:focus-visible, button:focus-visible, summary:focus-visible, select:focus-visible { outline: 2px solid var(--p-acao); outline-offset: 2px; }
 </style>
@@ -92,6 +105,13 @@
   </header>
   <div id="conteudo" class="lista"></div>
 </main>
+<dialog id="dlg-conversa">
+  <div class="lista">
+    <div class="linha1"><h2 id="conversa-titulo">Conversa</h2><button class="sutil" type="button" id="fechar-conversa">Fechar</button></div>
+    <p class="nota" id="conversa-sub"></p>
+    <ol class="conversa" id="conversa-msgs"></ol>
+  </div>
+</dialog>
 <dialog id="dlg-senha">
   <form id="form-senha">
     <h2>Trocar senha</h2>
@@ -194,6 +214,61 @@ function rodizio() {
     '<p class="nota">Quem está fora do rodízio não recebe lead automático, mas recebe o que você passar e o cliente que pedir a pessoa pelo nome.</p>';
 }
 
+/* ===== administração (só o admin da Moza recebe estes dados) ===== */
+var ESTADOS = { robo: "com o robô", fila: "fila da noite", encaminhada: "com o time", encerrada: "encerrada" };
+var MOTIVOS = { qualificado: "qualificado", pediu_pessoa: "pediu pessoa", negociacao: "negociação", fora_do_escopo: "fora do escopo", midia: "áudio ou foto", tempo_esgotado: "15 min com o robô", passado_pelo_gerente: "passado pelo gerente" };
+function dolar(v) { return "US$ " + Number(v || 0).toFixed(2); }
+function haQuanto(m) { return m == null ? "nunca" : m < 1 ? "agora" : m < 60 ? "há " + m + " min" : m < 1440 ? "há " + Math.floor(m / 60) + " h" : "há " + Math.floor(m / 1440) + " dias"; }
+function contagem(obj, nomes) { var k = Object.keys(obj || {}); return k.length ? k.map(function (x) { return esc((nomes && nomes[x]) || x) + ": " + obj[x]; }).join(" · ") : "nada ainda"; }
+
+function blocoAdmin(a) {
+  var s = a.saude;
+  var cronRuim = s.minutos_desde_cron == null || s.minutos_desde_cron > 3;
+  var html = "<h2>Administração</h2><div class=\"saude\">" +
+    '<div class="' + (s.loja_ativa ? "" : "ruim") + '"><small>Robô na loja</small><b>' + (s.loja_ativa ? "ligado" : "desligado") + "</b></div>" +
+    '<div class="' + (cronRuim ? "ruim" : "") + '"><small>Rodízio automático</small><b>' + haQuanto(s.minutos_desde_cron) + "</b></div>" +
+    "<div><small>Último aviso da Meta</small><b>" + haQuanto(s.minutos_desde_webhook) + "</b></div>" +
+    '<div class="' + (s.erros_24h ? "ruim" : "") + '"><small>Erros em 24 h</small><b>' + s.erros_24h + "</b></div></div>";
+  var linhas = [["Conversas", "conversas"], ["Passadas ao time", "encaminhadas"], ["Respondidas pelo time", "atendidas"], ["Sem resposta agora", "sem_resposta"],
+    ["Repasses", "repasses"], ["Rodízio esgotado", "escalados"]];
+  html += '<div class="placar"><table><thead><tr><th></th><th>Hoje</th><th>7 dias</th></tr></thead><tbody>' +
+    linhas.map(function (l) { return "<tr><td>" + l[0] + "</td><td>" + a.hoje[l[1]] + "</td><td>" + a.semana[l[1]] + "</td></tr>"; }).join("") +
+    "<tr><td>Tempo até o time responder</td><td>" + (a.hoje.minutos_ate_responder == null ? "" : a.hoje.minutos_ate_responder + " min") + "</td><td>" + (a.semana.minutos_ate_responder == null ? "" : a.semana.minutos_ate_responder + " min") + "</td></tr>" +
+    "<tr><td>Custo do robô</td><td>" + dolar(a.hoje.custo_usd) + "</td><td>" + dolar(a.semana.custo_usd) + "</td></tr></tbody></table></div>" +
+    '<p class="nota">Por que o robô passou (7 dias): ' + contagem(a.semana.motivos, MOTIVOS) + "<br>Origem (7 dias): " + contagem(a.semana.origens) + "</p>";
+  html += recolhido("Erros (7 dias)", a.erros, function (e) {
+    return '<div class="mini"><span><b>' + esc(e.onde) + "</b> · " + esc(e.mensagem) + "</span><span>" + e.vezes + "x, último " + dia(e.ultimo_em) + " " + hora(e.ultimo_em) + "</span></div>";
+  });
+  html += recolhido("Conversas (7 dias)", a.conversas, function (c) {
+    return '<article class="card' + (c.escalado ? " urg" : "") + '"><div class="linha1"><span class="nome">' + esc(c.nome) + '</span><span class="fone">' + dia(c.iniciada_em) + " " + hora(c.iniciada_em) + "</span></div>" +
+      '<div class="carro">' + esc(c.carro) + " · " + esc(c.origem) + " · " + (ESTADOS[c.estado] || c.estado) + (c.consultor ? " · " + esc(c.consultor) : "") + (c.atendida ? ", respondida" : "") + "</div>" +
+      '<div class="nota" style="margin:0">' + c.falas.lead + " do cliente, " + c.falas.robo + " do robô, " + c.falas.time + " do time" + (c.motivo ? " · " + esc(MOTIVOS[c.motivo] || c.motivo) : "") + " · " + dolar(c.custo_usd) + "</div>" +
+      '<div class="acoes"><button class="btn" type="button" data-acao="ver" data-id="' + c.id + '" data-nome="' + esc(c.nome) + '">Ver conversa</button></div></article>';
+  }, true);
+  return html;
+}
+
+var AUTORES = { lead: "Cliente", robo: "Robô", vendedor: "Time da loja", sistema: "Sistema" };
+function verConversa(id, nome) {
+  var dlg = document.getElementById("dlg-conversa"), lista = document.getElementById("conversa-msgs");
+  document.getElementById("conversa-titulo").textContent = nome;
+  document.getElementById("conversa-sub").textContent = "Carregando";
+  lista.innerHTML = "";
+  dlg.showModal();
+  fetch(FUNCAO + "conversa&id=" + encodeURIComponent(id), { cache: "no-store", headers: { "authorization": "Bearer " + sessao } })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (res) {
+      if (!res.ok) { document.getElementById("conversa-sub").textContent = res.j.erro || "Não foi possível abrir."; return; }
+      var c = res.j.conversa;
+      document.getElementById("conversa-sub").textContent = (c.origem || "") + " · " + (ESTADOS[c.estado] || c.estado) + " · começou " + dia(c.iniciada_em) + " às " + hora(c.iniciada_em) +
+        (c.resumo && c.resumo.resumo ? " · Resumo ao time: " + c.resumo.resumo : "");
+      lista.innerHTML = res.j.mensagens.map(function (m) {
+        return '<li class="' + m.autor + '"><small>' + (AUTORES[m.autor] || m.autor) + " · " + hora(m.criado_em) + (m.custo_usd ? " · " + dolar(m.custo_usd) : "") + "</small>" + esc(m.texto) + "</li>";
+      }).join("") || "<li class=\"sistema\">Sem mensagens.</li>";
+    })
+    .catch(function () { document.getElementById("conversa-sub").textContent = "Sem conexão. Tente de novo."; });
+}
+
 function desenhar() {
   if (!dados) return;
   /* não redesenha com uma lista de "passar para" aberta na mão do gerente */
@@ -205,7 +280,8 @@ function desenhar() {
     html += recolhido("Você atendeu", dados.atendidos, function (l) { return mini(l, "respondeu " + dia(l.atendido_em) + " às " + hora(l.atendido_em)); });
     html += recolhido("Passaram para outra pessoa", dados.passaram, function (l) { return mini(l, l.consultor ? "agora com " + esc(l.consultor) : ""); });
   } else {
-    document.getElementById("titulo").textContent = "Leads da loja";
+    document.getElementById("titulo").textContent = dados.admin ? "Painel do administrador" : "Leads da loja";
+    if (dados.admin) html += blocoAdmin(dados.admin) + "<h2>Visão do gerente</h2>";
     if (dados.voce.sua_vez.length) html += bloco("Com você", dados.voce.sua_vez, function (l) { return cardVez(l, false); }, "");
     var outros = dados.sem_resposta.filter(function (l) { return l.consultor_id !== dados.eu; });
     html += bloco("Sem resposta", outros, function (l) { return cardVez(l, true); }, "Todo lead encaminhado já foi respondido.");
@@ -323,7 +399,9 @@ conteudo.addEventListener("click", function (ev) {
   var b = ev.target.closest("button[data-acao]");
   if (!b || ocupado) return;
   var nome = b.getAttribute("data-nome");
-  if (b.dataset.acao === "passar") {
+  if (b.dataset.acao === "ver") {
+    verConversa(b.dataset.id, nome);
+  } else if (b.dataset.acao === "passar") {
     agir({ acao: "passar", conversa_id: b.dataset.id, para: b.dataset.para });
   } else if (b.dataset.acao === "nao_e_lead") {
     if (confirm(nome + " não é lead? O robô para de responder este contato e ele sai do painel.")) agir({ acao: "nao_e_lead", conversa_id: b.dataset.id });
@@ -391,6 +469,7 @@ document.getElementById("sair").addEventListener("click", function () {
   fetch(FUNCAO + "sair", { method: "POST", headers: { "authorization": "Bearer " + s, "content-type": "application/json" }, body: "{}" }).catch(function () {});
 });
 
+document.getElementById("fechar-conversa").addEventListener("click", function () { document.getElementById("dlg-conversa").close(); });
 var dlg = document.getElementById("dlg-senha");
 document.getElementById("abrir-senha").addEventListener("click", function () { document.getElementById("form-senha").reset(); document.getElementById("erro-senha").textContent = ""; dlg.showModal(); });
 document.getElementById("fechar-senha").addEventListener("click", function () { dlg.close(); });

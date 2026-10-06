@@ -83,3 +83,62 @@ export function equipeDoPainel(equipe: (Vendedor & { nome: string; gerente?: boo
     esperando: conversas.filter((c) => c.vendedor_id === v.id && aguardando(c)).length,
   }));
 }
+
+/* ===== visão do administrador da Moza: saúde, números, erros e a lista de conversas para auditar ===== */
+type Numeros = {
+  conversas: number; encaminhadas: number; atendidas: number; sem_resposta: number; escalados: number; repasses: number;
+  minutos_ate_responder: number | null; custo_usd: number; motivos: Record<string, number>; origens: Record<string, number>;
+};
+
+function numeros(conversas: Linha[], custoPorConversa: Map<string, number>): Numeros {
+  const atendidas = conversas.filter((c) => c.primeira_acao_humana_em);
+  const tempos = atendidas.filter((c) => c.encaminhado_em)
+    .map((c) => (new Date(c.primeira_acao_humana_em).getTime() - new Date(c.encaminhado_em).getTime()) / 60_000).filter((m) => m >= 0);
+  const conta = (f: (c: Linha) => string | null) => conversas.reduce((acc, c) => { const k = f(c); if (k) acc[k] = (acc[k] ?? 0) + 1; return acc; }, {} as Record<string, number>);
+  return {
+    conversas: conversas.length,
+    encaminhadas: conversas.filter((c) => c.encaminhado_em).length,
+    atendidas: atendidas.length,
+    sem_resposta: conversas.filter(aguardando).length,
+    escalados: conversas.filter((c) => c.escalado_em).length,
+    repasses: conversas.reduce((s, c) => s + Math.max(0, (c.tentativas ?? []).length - 1), 0),
+    minutos_ate_responder: tempos.length ? Math.round(tempos.reduce((a, b) => a + b, 0) / tempos.length) : null,
+    custo_usd: Number(conversas.reduce((s, c) => s + (custoPorConversa.get(c.id) ?? 0), 0).toFixed(4)),
+    motivos: conta((c) => c.resumo?.motivo ?? null),
+    origens: conta((c) => c.origem ?? null),
+  };
+}
+
+export function painelAdmin(p: {
+  conversas: Linha[]; mensagens: Linha[]; erros: Linha[]; saude: Linha[]; vendedores: Map<string, string>;
+  lojaAtiva: boolean; inicioDoDia: string; agora?: number;
+}) {
+  const agora = p.agora ?? Date.now();
+  const custo = new Map<string, number>(), falas = new Map<string, { lead: number; robo: number; time: number }>();
+  for (const m of p.mensagens) {
+    custo.set(m.conversa_id, (custo.get(m.conversa_id) ?? 0) + Number(m.custo_usd ?? 0));
+    const f = falas.get(m.conversa_id) ?? { lead: 0, robo: 0, time: 0 };
+    if (m.autor === "lead") f.lead++; else if (m.autor === "robo") f.robo++; else if (m.autor === "vendedor") f.time++;
+    falas.set(m.conversa_id, f);
+  }
+  const batida = (chave: string) => p.saude.find((s) => s.chave === chave)?.em ?? null;
+  const hoje = p.conversas.filter((c) => c.iniciada_em >= p.inicioDoDia);
+  return {
+    saude: {
+      loja_ativa: p.lojaAtiva,
+      cron_em: batida("cron"), minutos_desde_cron: min(batida("cron"), agora),
+      webhook_em: batida("webhook"), minutos_desde_webhook: min(batida("webhook"), agora),
+      erros_24h: p.erros.filter((e) => agora - new Date(e.ultimo_em).getTime() < 24 * 3600 * 1000).reduce((s, e) => s + (e.vezes ?? 1), 0),
+    },
+    hoje: numeros(hoje, custo),
+    semana: numeros(p.conversas, custo),
+    erros: p.erros,
+    conversas: p.conversas.map((c) => ({
+      id: c.id, nome: c.lead_nome || "Cliente sem nome", telefone: foneLegivel(c.lead_wa), estado: c.estado, origem: c.origem,
+      carro: c.resumo?.veiculo ?? c.origem_detalhe?.veiculo_texto ?? "não identificado", iniciada_em: c.iniciada_em,
+      motivo: c.resumo?.motivo ?? null, consultor: c.vendedor_id ? p.vendedores.get(c.vendedor_id) ?? null : null,
+      atendida: !!c.primeira_acao_humana_em, escalado: !!c.escalado_em, falas: falas.get(c.id) ?? { lead: 0, robo: 0, time: 0 },
+      custo_usd: Number((custo.get(c.id) ?? 0).toFixed(4)),
+    })),
+  };
+}
