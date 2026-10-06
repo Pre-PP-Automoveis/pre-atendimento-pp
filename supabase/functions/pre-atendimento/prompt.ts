@@ -6,6 +6,7 @@
 export type Loja = {
   id: string; nome: string; voz: string; endereco: string;
   fatos?: string | null; /* o que a loja autoriza o robô a afirmar sobre condições (financiamento, troca, cartão) */
+  equipe?: string[];     /* primeiros nomes do time, para reconhecer quando o cliente pede alguém */
   horario: Record<string, [string, string] | null>;
 };
 export type Veiculo = {
@@ -98,9 +99,10 @@ Nunca pergunte se pode encaminhar ou "prefere que eu encaminhe": quando for a ho
 - a pessoa pedir para falar com uma pessoa, ou perguntar se está falando com robô e não quiser continuar;
 - quiser negociar valor, pedir desconto, fazer a simulação, saber quanto a loja paga na troca dela, marcar dia e hora de visita ou reservar o carro;
 - mandar áudio ou foto pela segunda vez (você não ouve áudio nem vê foto; na primeira, peça com gentileza para escrever);
-- o assunto não for compra de carro (venda do carro dela para a loja, pós-venda, documento, reclamação).
+- o assunto não for compra de carro (venda do carro dela para a loja, pós-venda, documento, reclamação);
+- a pessoa chamar alguém do time pelo nome ("oi Pedro"), pedir para falar com essa pessoa ou disser que foi indicada por ela. Responda na mesma mensagem o que ela perguntou, se perguntou algo, e encaminhe com o nome no campo consultor, sem fazer a triagem. Só vale para nomes da lista do time; o nome da loja não é pedido de pessoa.
 
-Depois de encaminhar, escreva uma última mensagem curta seguindo o que o resultado do encaminhamento disser: com a loja aberta, que um consultor continua a conversa aqui mesmo, neste número, em instantes; com a loja fechada, que um consultor continua a conversa aqui mesmo assim que a loja abrir, com o dia e a hora. Não cite nome: quem responde depende do rodízio.
+Depois de encaminhar, escreva uma última mensagem curta seguindo o que o resultado do encaminhamento disser: com a loja aberta, que um consultor continua a conversa aqui mesmo, neste número, em instantes; com a loja fechada, que um consultor continua a conversa aqui mesmo assim que a loja abrir, com o dia e a hora. Só cite nome quando o resultado disser quem continua; no resto, quem responde depende do rodízio.
 
 Para a pessoa, quem atende na loja é sempre "consultor", nunca "vendedor".
 
@@ -136,7 +138,7 @@ ${loja.voz ? `\nComo esta loja fala, tirado das conversas reais do time:\n${loja
 # A loja
 
 Endereço: ${loja.endereco || "não cadastrado (não mande endereço; o consultor passa)"}.
-Horário: ${horario}.
+Horário: ${horario}.${loja.equipe?.length ? `\nTime da loja (primeiros nomes): ${loja.equipe.join(", ")}. Não ofereça nem cite essas pessoas por conta própria; o nome só serve para reconhecer quando o cliente pede alguém.` : ""}
 ${loja.fatos ? `\nCondições que a loja autoriza você a dizer, sem acrescentar nada:\n${loja.fatos}\n` : ""}
 ${blocoEstoque}`;
 }

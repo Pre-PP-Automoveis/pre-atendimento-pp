@@ -50,3 +50,21 @@ Deno.test("telefone legível para achar a conversa", () => {
   assertEquals(foneLegivel("5511987654321"), "(11) 98765-4321");
   assertEquals(foneLegivel("551143218765"), "(11) 4321-8765");
 });
+
+import { pessoaPedida } from "./rodizio.ts";
+Deno.test("quem está fora do rodízio não recebe lead automático", () => {
+  const equipe = [
+    { id: "keila", nome: "Keila", ativo: true, ordem: 1, ultimo_lead_em: null, no_rodizio: false },
+    { id: "ryan", nome: "Ryan", ativo: true, ordem: 2, ultimo_lead_em: "2026-10-06T10:00:00Z", no_rodizio: true },
+  ];
+  assertEquals(proximoVendedor(equipe, [])?.id, "ryan");
+});
+
+Deno.test("lead que pede alguém pelo nome acha a pessoa, mesmo fora do rodízio e com apelido", () => {
+  const equipe = ["Leo", "Ryan", "Rafa", "Pedro", "Keila"].map((nome, i) => ({ id: nome, nome, ativo: true, ordem: i, ultimo_lead_em: null, no_rodizio: nome !== "Pedro" }));
+  assertEquals(pessoaPedida(equipe, "Pedro")?.id, "Pedro");
+  assertEquals(pessoaPedida(equipe, "Rafael")?.id, "Rafa");
+  assertEquals(pessoaPedida(equipe, "Leonardo")?.id, "Leo");
+  assertEquals(pessoaPedida(equipe, "nenhum"), null);
+  assertEquals(pessoaPedida(equipe, "Marcos"), null);
+});

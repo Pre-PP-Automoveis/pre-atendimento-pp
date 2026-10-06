@@ -30,3 +30,25 @@ Deno.test("gerente vê sem resposta com o nome de quem está com o lead, e o pla
   const rafa = g.placar.find((p) => p.consultor === "Rafael")!;
   assertEquals([rafa.recebidos, rafa.atendidos, rafa.passaram_adiante, rafa.minutos_ate_responder], [4, 1, 1, 5]);
 });
+
+import { equipeDoPainel } from "./painel.ts";
+Deno.test("lead passado pelo gerente volta para a vez do novo dono até alguém escrever de novo", () => {
+  const passado = { ...base, id: "f", estado: "encaminhada", vendedor_id: "paulo", tentativas: ["rafa", "paulo"], avisado_em: em(1), encaminhado_em: em(30),
+    primeira_acao_humana_em: em(25), ultima_acao_humana_em: em(25), transferido_em: em(1), fixado_por: "gerente" };
+  const p = painelConsultor([passado], "paulo", vend, 15, agora);
+  assertEquals(p.sua_vez.map((l) => l.id), ["f"]);
+  assertEquals(p.sua_vez[0].minutos_para_repasse, null); // dono fixo não repassa sozinho
+  const respondido = { ...passado, ultima_acao_humana_em: em(0) };
+  assertEquals(painelConsultor([respondido], "paulo", vend, 15, agora).sua_vez.length, 0);
+  assertEquals(painelConsultor([respondido], "paulo", vend, 15, agora).atendidos.map((l) => l.id), ["f"]);
+});
+
+Deno.test("equipe do gerente mostra o próximo da vez e quem está fora do rodízio", () => {
+  const equipe = [
+    { id: "rafa", nome: "Rafael", ativo: true, ordem: 1, ultimo_lead_em: em(5), no_rodizio: true },
+    { id: "paulo", nome: "Paulo", ativo: true, ordem: 2, ultimo_lead_em: em(50), no_rodizio: true },
+    { id: "keila", nome: "Keila", ativo: true, ordem: 3, ultimo_lead_em: null, no_rodizio: false },
+  ];
+  const e = equipeDoPainel(equipe, conversas);
+  assertEquals(e.map((x) => [x.id, x.proximo, x.no_rodizio, x.esperando]), [["rafa", false, true, 2], ["paulo", true, true, 1], ["keila", false, false, 0]]);
+});

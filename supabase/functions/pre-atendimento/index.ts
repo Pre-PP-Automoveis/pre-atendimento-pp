@@ -8,12 +8,12 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { lerOrigem, type Referral } from "./origem.ts";
 import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
-import { foneLegivel, passouDoRobo, proximoVendedor, venceuPrazo } from "./rodizio.ts";
+import { foneLegivel, passouDoRobo, pessoaPedida, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
 import { AVISO_PADRAO, despedidaPadrao, exigirConvite, notasDaConversa, semAvisoRepetido, semFrasesFeitas, semTravessao, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
-import { painelConsultor, painelGerente } from "./painel.ts";
+import { equipeDoPainel, painelConsultor, painelGerente } from "./painel.ts";
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void };
 
@@ -50,11 +50,13 @@ type Linha = Record<string, any>;
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   /* verificação do webhook, feita uma vez no painel da Meta */
-  /* painel de leads (link pessoal do consultor ou do gerente), lido pela página do site da Moza */
+  /* painel de leads (link pessoal de cada pessoa do time), lido pela página do site da Moza. POST: ações do gerente */
   if (url.searchParams.get("painel") !== null) {
-    const cabecalhos = { ...corsCadastro(req.headers.get("origin")), "Access-Control-Allow-Methods": "GET, OPTIONS", "Content-Type": "application/json", "Cache-Control": "no-store" };
+    const cabecalhos = { ...corsCadastro(req.headers.get("origin")), "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Content-Type": "application/json", "Cache-Control": "no-store" };
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cabecalhos });
-    const r = await lerPainel(url.searchParams.get("painel") ?? "").catch((e) => ({ status: 500, corpo: { erro: String(e?.message ?? e) } }));
+    const token = url.searchParams.get("painel") ?? "";
+    const r = await (req.method === "POST" ? agirPainel(token, await req.json().catch(() => ({}))) : lerPainel(token))
+      .catch((e) => ({ status: 500, corpo: { erro: String(e?.message ?? e) } }));
     return new Response(JSON.stringify(r.corpo), { status: r.status, headers: cabecalhos });
   }
 
@@ -100,6 +102,7 @@ Deno.serve(async (req) => {
     const pedido = await req.json().catch(() => ({}));
     const { data: loja } = await admin.from("pa_lojas").select("*").eq("slug", pedido.loja ?? "pp-automoveis").single();
     if (!loja) return new Response(JSON.stringify({ erro: "loja não encontrada" }), { status: 404 });
+    loja.equipe = await nomesDaEquipe(loja.id);
     /* sem estoque no pedido, usa o estoque real da loja */
     const { data: frota } = pedido.estoque ? { data: null } : await admin.from("pa_veiculos").select("*").eq("loja_id", loja.id).order("titulo");
     const resultado = await simular(anthropic(), loja, { ...pedido, estoque: pedido.estoque ?? frota ?? [] });
@@ -174,7 +177,7 @@ async function tratarEco(loja: Linha, eco: Linha) {
   const agora = new Date().toISOString();
   const assumiu = conversa.estado === "robo" || conversa.estado === "fila";
   await admin.from("pa_conversas").update({
-    ultima_msg_em: agora,
+    ultima_msg_em: agora, ultima_acao_humana_em: agora,
     /* entrou antes do robô encaminhar (ou de madrugada, com o lead na fila): a conversa passa a ser do time */
     ...(assumiu ? { estado: "encaminhada", encaminhado_em: conversa.encaminhado_em ?? agora } : {}),
   }).eq("id", conversa.id);
@@ -186,6 +189,9 @@ async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null
   /* vendedor escrevendo do celular pessoal para o número da loja: não é lead */
   const { data: vendedor } = await admin.from("pa_vendedores").select("id").eq("loja_id", loja.id).eq("whatsapp", msg.from).maybeSingle();
   if (vendedor) return;
+  /* contato que o gerente marcou como "não é lead" no painel: o robô não responde */
+  const { data: ignorado } = await admin.from("pa_ignorados").select("wa").eq("loja_id", loja.id).eq("wa", msg.from).maybeSingle();
+  if (ignorado) return;
 
   const texto = textoDe(msg);
   const conversa = await abrirConversa(loja, msg, texto, nomePerfil);
@@ -252,9 +258,10 @@ async function lembrarLead(loja: Linha, conversa: Linha) {
 async function responder(loja: Linha, conversaId: string) {
   const { data: conversa } = await admin.from("pa_conversas").select("*").eq("id", conversaId).single();
   if (!conversa || conversa.estado !== "robo") return;
-  const [{ data: estoque }, { data: historico }] = await Promise.all([
+  const [{ data: estoque }, { data: historico }, equipe] = await Promise.all([
     admin.from("pa_veiculos").select("*").eq("loja_id", loja.id).order("titulo"),
     admin.from("pa_mensagens").select("autor, texto").eq("conversa_id", conversaId).in("autor", ["lead", "robo"]).order("id"),
+    nomesDaEquipe(loja.id),
   ]);
   const veiculos = (estoque ?? []) as Veiculo[];
   const ficha = veiculos.find((v) => v.id === conversa.veiculo_id) ?? null;
@@ -271,7 +278,7 @@ async function responder(loja: Linha, conversaId: string) {
   let encaminhado: Resultado | null = null;
   try {
     const turno = await rodarTurno({
-      cliente: anthropic(), modelo: loja.modelo, sistema: promptSistema(loja as Loja, veiculos), messages,
+      cliente: anthropic(), modelo: loja.modelo, sistema: promptSistema({ ...loja, equipe } as Loja, veiculos), messages,
       validar: exigirConvite(historico ?? [], loja.endereco),
       aoEncaminhar: async (e) => {
         /* o cron dos 15 minutos ou o time podem ter levado a conversa enquanto a Claude pensava */
@@ -285,7 +292,7 @@ async function responder(loja: Linha, conversaId: string) {
   } catch (e) {
     /* contingência do item 4.6: o lead não fica sem resposta e a conversa vai para uma pessoa */
     console.error("claude", conversaId, e);
-    encaminhado ??= await encaminhar(loja, conversa, { motivo: "fora_do_escopo", veiculo: conversa.origem_detalhe?.veiculo_texto || "não identificado",
+    encaminhado ??= await encaminhar(loja, conversa, { motivo: "fora_do_escopo", consultor: "nenhum", veiculo: conversa.origem_detalhe?.veiculo_texto || "não identificado",
       troca: "não perguntado", pagamento: "não perguntado", visita: "não perguntado", pendencias: "nenhuma",
       resumo: "O robô ficou indisponível no meio do atendimento; retome a conversa do começo." });
     textos = [encaminhado.fila
@@ -311,16 +318,26 @@ async function responder(loja: Linha, conversaId: string) {
   if (primeiroTurno) await admin.from("pa_conversas").update({ respondido_robo_em: new Date().toISOString() }).eq("id", conversaId);
 }
 
+/* primeiros nomes de quem está ativo no time, para o robô reconhecer quando o cliente pede alguém */
+async function nomesDaEquipe(lojaId: string) {
+  const { data } = await admin.from("pa_vendedores").select("nome").eq("loja_id", lojaId).eq("ativo", true).order("ordem");
+  return (data ?? []).map((v: Linha) => primeiroNome(v.nome)).filter(Boolean);
+}
+
 /* Fecha a triagem. Loja aberta: avisa já o vendedor da vez. Loja fechada: entra na fila e o cron avisa na abertura,
-   para o lead não cair de madrugada no celular de quem estiver na vez e o SLA contar a partir do horário comercial. */
+   para o lead não cair de madrugada no celular de quem estiver na vez e o SLA contar a partir do horário comercial.
+   Cliente que pediu alguém do time pelo nome vai para essa pessoa, dentro ou fora do rodízio. */
 async function encaminhar(loja: Linha, conversa: Linha, e: Encaminhamento): Promise<Resultado> {
+  const { data: equipe } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id);
+  const pedida = pessoaPedida(equipe ?? [], e.consultor);
+  const dono = pedida ? { vendedor_id: pedida.id, fixado_por: "lead" } : {};
   const horario = situacaoHorario(loja.horario ?? {});
   if (!horario.aberta) {
-    await admin.from("pa_conversas").update({ estado: "fila", fila_em: new Date().toISOString(), resumo: e }).eq("id", conversa.id);
-    await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema", texto: `na fila até a abertura (${e.motivo})` });
-    return { ok: true, vendedor: null, fila: true, abre: horario.abre };
+    await admin.from("pa_conversas").update({ estado: "fila", fila_em: new Date().toISOString(), resumo: e, ...dono }).eq("id", conversa.id);
+    await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema", texto: `na fila até a abertura (${e.motivo})${pedida ? `, pediu ${pedida.nome}` : ""}` });
+    return { ok: true, vendedor: pedida ? primeiroNome(pedida.nome) : null, nomeado: !!pedida, fila: true, abre: horario.abre };
   }
-  return avisarVendedor(loja, { ...conversa, resumo: e });
+  return avisarVendedor(loja, { ...conversa, resumo: e, ...dono });
 }
 
 /* cron: o lead fica no máximo prazo_robo_min com o robô. Passou disso sem a triagem acabar (o lead parou de
@@ -333,7 +350,7 @@ async function tirarDoRobo() {
     for (const conversa of abertas ?? []) {
       if (!passouDoRobo(conversa, loja.prazo_robo_min ?? 15)) continue;
       const r = await encaminhar(loja, conversa, {
-        motivo: "tempo_esgotado", veiculo: conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
+        motivo: "tempo_esgotado", consultor: "nenhum", veiculo: conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
         troca: "ver na conversa", pagamento: "ver na conversa", visita: "ver na conversa", pendencias: "ver na conversa",
         resumo: `Triagem não terminou em ${loja.prazo_robo_min ?? 15} min; a conversa inteira está no WhatsApp da loja.`,
       }).catch((err) => ({ ok: false, erro: String(err) }) as Resultado);
@@ -368,7 +385,7 @@ async function repassar() {
   for (const loja of lojas ?? []) {
     if (!situacaoHorario(loja.horario ?? {}).aberta) continue;
     const { data: pendentes } = await admin.from("pa_conversas").select("*").eq("loja_id", loja.id)
-      .eq("estado", "encaminhada").is("primeira_acao_humana_em", null).is("escalado_em", null).not("avisado_em", "is", null);
+      .eq("estado", "encaminhada").is("primeira_acao_humana_em", null).is("escalado_em", null).is("fixado_por", null).not("avisado_em", "is", null);
     const { data: equipe } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id);
     for (const conversa of pendentes ?? []) {
       if (!venceuPrazo(conversa, loja.prazo_repasse_min ?? 60)) continue;
@@ -393,7 +410,9 @@ async function avisarVendedor(loja: Linha, conversa: Linha): Promise<Resultado> 
     return { ok: false, vendedor: null, erro };
   };
   const { data: equipe } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id);
-  const vend = proximoVendedor(equipe ?? [], tentativas);
+  /* dono fixo (o cliente pediu a pessoa): vai para ela, sem gastar a vez de ninguém no rodízio */
+  const fixo = conversa.fixado_por ? (equipe ?? []).find((v: Linha) => v.id === conversa.vendedor_id && v.ativo) ?? null : null;
+  const vend = fixo ?? proximoVendedor(equipe ?? [], tentativas);
   if (!vend) return falhar("nenhum vendedor ativo");
 
   /* modo painel (número compartilhado): o lead aparece no painel do consultor da vez, sem mensagem.
@@ -407,14 +426,15 @@ async function avisarVendedor(loja: Linha, conversa: Linha): Promise<Resultado> 
       return falhar(String(err));
     }
   }
-  await admin.from("pa_vendedores").update({ ultimo_lead_em: agora }).eq("id", vend.id);
+  if (!fixo) await admin.from("pa_vendedores").update({ ultimo_lead_em: agora }).eq("id", vend.id);
   await admin.from("pa_conversas").update({
     estado: "encaminhada", vendedor_id: vend.id, avisado_em: agora, encaminhado_em: conversa.encaminhado_em ?? agora,
-    tentativas: [...tentativas, vend.id], resumo: e,
+    tentativas: tentativas.includes(vend.id) ? tentativas : [...tentativas, vend.id], resumo: e, fixado_por: fixo ? conversa.fixado_por : null,
   }).eq("id", conversa.id);
   await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema",
-    texto: repasse ? `repassado para ${vend.nome}: sem resposta em ${loja.prazo_repasse_min ?? 60} min` : `encaminhado para ${vend.nome} (${e.motivo})${conversa.estado === "fila" ? ", vindo da fila" : ""}` });
-  return { ok: true, vendedor: primeiroNome(vend.nome) };
+    texto: repasse && !fixo ? `repassado para ${vend.nome}: sem resposta em ${loja.prazo_repasse_min ?? 60} min`
+      : `encaminhado para ${vend.nome} (${e.motivo})${fixo ? ", a pedido do cliente" : ""}${conversa.estado === "fila" ? ", vindo da fila" : ""}` });
+  return { ok: true, vendedor: primeiroNome(vend.nome), nomeado: !!fixo };
 }
 
 async function escalarGerente(loja: Linha, conversa: Linha) {
@@ -448,25 +468,78 @@ function paramsAviso(conversa: Linha, e: Encaminhamento, prefixo: string) {
 }
 
 /* ===== painel de leads ===== */
+/* cada pessoa do time tem um link (token_painel). O de quem é gerente abre a visão da loja, com os leads dele no topo. */
+async function donoDoLink(token: string) {
+  if (token.length < 32) return null;
+  const { data: pessoa } = await admin.from("pa_vendedores").select("*").eq("token_painel", token).maybeSingle();
+  return pessoa?.ativo ? pessoa : null;
+}
+
 async function lerPainel(token: string): Promise<{ status: number; corpo: unknown }> {
-  if (token.length < 32) return { status: 403, corpo: { erro: "link inválido" } };
-  const { data: lojaGerente } = await admin.from("pa_lojas").select("*").eq("token_painel_gerente", token).maybeSingle();
-  const { data: vendedor } = lojaGerente ? { data: null } : await admin.from("pa_vendedores").select("*").eq("token_painel", token).maybeSingle();
-  const lojaId = lojaGerente?.id ?? vendedor?.loja_id;
-  if (!lojaId) return { status: 403, corpo: { erro: "link inválido ou desativado" } };
-  const loja = lojaGerente ?? (await admin.from("pa_lojas").select("*").eq("id", lojaId).single()).data!;
+  const pessoa = await donoDoLink(token);
+  if (!pessoa) return { status: 403, corpo: { erro: "Link inválido ou desativado. Peça o seu link ao gerente." } };
+  const { data: loja } = await admin.from("pa_lojas").select("*").eq("id", pessoa.loja_id).single();
 
   const desde = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   const [{ data: conversas }, { data: equipe }] = await Promise.all([
-    admin.from("pa_conversas").select("*").eq("loja_id", lojaId).neq("estado", "encerrada").gte("ultima_msg_em", desde),
-    admin.from("pa_vendedores").select("id, nome, ativo").eq("loja_id", lojaId),
+    admin.from("pa_conversas").select("*").eq("loja_id", loja.id).neq("estado", "encerrada").gte("ultima_msg_em", desde),
+    admin.from("pa_vendedores").select("id, nome, ativo, ordem, no_rodizio, gerente, ultimo_lead_em").eq("loja_id", loja.id),
   ]);
   const nomes = new Map<string, string>((equipe ?? []).map((v: Linha) => [v.id, v.nome]));
   const prazo = loja.prazo_repasse_min ?? 15;
-  const { data: hojeSP } = { data: new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }) };
+  const hojeSP = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
   const inicioDoDia = new Date(`${hojeSP}T00:00:00-03:00`).toISOString();
-  const cabecalho = { loja: loja.nome, prazo_repasse_min: prazo, horario: situacaoHorario(loja.horario ?? {}).texto, atualizado_em: new Date().toISOString() };
-  if (lojaGerente) return { status: 200, corpo: { ...cabecalho, quem: "gerente", nome: loja.gerente_nome ?? "Gerente", ...painelGerente(conversas ?? [], nomes, prazo, Date.now(), inicioDoDia) } };
-  if (!vendedor.ativo) return { status: 403, corpo: { erro: "consultor fora do rodízio" } };
-  return { status: 200, corpo: { ...cabecalho, quem: "consultor", nome: vendedor.nome, ...painelConsultor(conversas ?? [], vendedor.id, nomes, prazo) } };
+  const cabecalho = { loja: loja.nome, prazo_repasse_min: prazo, horario: situacaoHorario(loja.horario ?? {}).texto, atualizado_em: new Date().toISOString(), nome: pessoa.nome, eu: pessoa.id };
+  const meus = painelConsultor(conversas ?? [], pessoa.id, nomes, prazo);
+  if (!pessoa.gerente) return { status: 200, corpo: { ...cabecalho, quem: "consultor", ...meus } };
+  return { status: 200, corpo: {
+    ...cabecalho, quem: "gerente", voce: meus,
+    ...painelGerente(conversas ?? [], nomes, prazo, Date.now(), inicioDoDia),
+    equipe: equipeDoPainel(equipe ?? [], conversas ?? []),
+  } };
+}
+
+/* ações do gerente: passar um lead (inclusive para ele mesmo), ligar e desligar alguém do rodízio, marcar "não é lead" */
+async function agirPainel(token: string, pedido: Linha): Promise<{ status: number; corpo: unknown }> {
+  const gerente = await donoDoLink(token);
+  if (!gerente?.gerente) return { status: 403, corpo: { erro: "Só o gerente faz mudanças no painel." } };
+  const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
+  const agora = new Date().toISOString();
+  const quem = primeiroNome(gerente.nome);
+
+  if (pedido.acao === "rodizio") {
+    const id = uuid(pedido.vendedor_id);
+    const { data: pessoa } = id ? await admin.from("pa_vendedores").update({ no_rodizio: !!pedido.no_rodizio })
+      .eq("id", id).eq("loja_id", gerente.loja_id).select("nome").maybeSingle() : { data: null };
+    return pessoa ? { status: 200, corpo: { ok: true } } : { status: 404, corpo: { erro: "Pessoa não encontrada." } };
+  }
+
+  const id = uuid(pedido.conversa_id);
+  const { data: conversa } = id ? await admin.from("pa_conversas").select("*").eq("id", id).eq("loja_id", gerente.loja_id).neq("estado", "encerrada").maybeSingle() : { data: null };
+  if (!conversa) return { status: 404, corpo: { erro: "Esse lead não está mais aberto. Atualize o painel." } };
+
+  if (pedido.acao === "passar") {
+    const paraId = uuid(pedido.para);
+    const { data: para } = paraId ? await admin.from("pa_vendedores").select("*").eq("id", paraId).eq("loja_id", gerente.loja_id).eq("ativo", true).maybeSingle() : { data: null };
+    if (!para) return { status: 404, corpo: { erro: "Pessoa não encontrada." } };
+    const tentativas: string[] = conversa.tentativas ?? [];
+    /* com o robô ou na fila da noite: o robô sai da conversa na hora e quem recebe continua pelo aplicativo */
+    await admin.from("pa_conversas").update({
+      estado: "encaminhada", vendedor_id: para.id, fixado_por: "gerente", transferido_em: agora, avisado_em: agora, escalado_em: null,
+      encaminhado_em: conversa.encaminhado_em ?? agora, tentativas: tentativas.includes(para.id) ? tentativas : [...tentativas, para.id],
+      resumo: conversa.resumo ?? { motivo: "passado_pelo_gerente", consultor: "nenhum", veiculo: conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
+        troca: "ver na conversa", pagamento: "ver na conversa", visita: "ver na conversa", pendencias: "ver na conversa", resumo: "Passado pelo gerente; a conversa está no WhatsApp da loja." },
+    }).eq("id", conversa.id);
+    await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema",
+      texto: para.id === gerente.id ? `${quem} puxou o lead para si` : `${quem} passou o lead para ${para.nome}` });
+    return { status: 200, corpo: { ok: true } };
+  }
+
+  if (pedido.acao === "nao_e_lead") {
+    await admin.from("pa_conversas").update({ estado: "encerrada" }).eq("id", conversa.id);
+    await admin.from("pa_ignorados").upsert({ loja_id: gerente.loja_id, wa: conversa.lead_wa, motivo: `marcado por ${quem}` });
+    await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema", texto: `${quem} marcou como "não é lead": o robô não responde mais este contato` });
+    return { status: 200, corpo: { ok: true } };
+  }
+  return { status: 400, corpo: { erro: "Ação desconhecida." } };
 }

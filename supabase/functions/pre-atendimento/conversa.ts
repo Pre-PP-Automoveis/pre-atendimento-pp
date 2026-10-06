@@ -17,9 +17,10 @@ export const ENCAMINHAR: Anthropic.Tool = {
   input_schema: {
     type: "object",
     additionalProperties: false,
-    required: ["motivo", "veiculo", "troca", "pagamento", "visita", "pendencias", "resumo"],
+    required: ["motivo", "consultor", "veiculo", "troca", "pagamento", "visita", "pendencias", "resumo"],
     properties: {
       motivo: { type: "string", enum: ["qualificado", "pediu_pessoa", "negociacao", "fora_do_escopo", "midia"] },
+      consultor: { type: "string", description: "Primeiro nome da pessoa do time que o cliente chamou, pediu ou disse que o indicou, só se estiver na lista do time. \"nenhum\" nos outros casos (o nome da loja não conta)." },
       veiculo: { type: "string", description: "Carro de interesse como a pessoa ou o anúncio disse. \"não identificado\" se não souber." },
       troca: { type: "string", description: "Carro da troca (modelo, ano, km) como a pessoa disse, ou \"não tem\" / \"não perguntado\" / \"não respondeu\"." },
       pagamento: { type: "string", description: "À vista, financiamento, cartão, entrada, ou \"não perguntado\" / \"não respondeu\"." },
@@ -30,8 +31,8 @@ export const ENCAMINHAR: Anthropic.Tool = {
   },
 };
 
-export type Encaminhamento = { motivo: string; veiculo: string; troca: string; pagamento: string; visita: string; pendencias: string; resumo: string };
-export type Resultado = { ok: boolean; vendedor: string | null; fila?: boolean; abre?: string | null; erro?: string };
+export type Encaminhamento = { motivo: string; consultor?: string; veiculo: string; troca: string; pagamento: string; visita: string; pendencias: string; resumo: string };
+export type Resultado = { ok: boolean; vendedor: string | null; nomeado?: boolean; fila?: boolean; abre?: string | null; erro?: string };
 
 /* lead vira user, robô vira assistant; mensagens seguidas do mesmo lado viram um turno só.
    O contexto do momento (hora, origem, carro) vai junto da última mensagem do lead. */
@@ -51,7 +52,9 @@ export function montarMensagens(historico: { autor: string; texto: string }[], c
 }
 
 const resultadoParaModelo = (r: Resultado) =>
-  r.fila
+  r.nomeado && r.vendedor
+    ? `${r.vendedor} recebeu o resumo e continua a conversa aqui mesmo, neste número, ${r.fila ? `quando a loja abrir, ${r.abre ?? "no próximo horário de funcionamento"}` : "em instantes"}. Escreva só a despedida, dizendo que é ${r.vendedor} quem continua.`
+    : r.fila
     ? `A loja está fechada. O atendimento ficou anotado e um consultor continua a conversa aqui mesmo, neste número, quando a loja abrir, ${r.abre ?? "no próximo horário de funcionamento"}. Diga isso ao lead e despeça-se.`
     : r.ok
       ? "O consultor da vez recebeu o resumo e continua a conversa aqui mesmo, neste número. Escreva só a despedida, sem citar nome."
@@ -171,6 +174,7 @@ export function visitaReal(visita: string, historico: Msg[], endereco: string | 
 export function exigirConvite(historico: Msg[], endereco: string | null) {
   return (e: Encaminhamento) => {
     if (e.motivo !== "qualificado" || !endereco) return null;
+    if (e.consultor && !/^nenhum/i.test(e.consultor.trim())) return null; // pediu alguém pelo nome: vai direto para essa pessoa
     if (/hoje|amanh[aã]|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo|\d+\s*h/i.test(e.visita)) return null; // já disse quando vem
     const rua = endereco.split(",")[0];
     if (historico.some((m) => m.autor === "robo" && m.texto.includes(rua))) return null;
@@ -188,7 +192,9 @@ export function semFrasesFeitas(texto: string) {
 }
 
 /* despedida de reserva, quando o modelo encaminhou e não escreveu nada */
-export const despedidaPadrao = (r: Resultado) =>
-  r.fila
-    ? `Anotei tudo. Um consultor continua a conversa aqui mesmo assim que a loja abrir${r.abre ? `, ${r.abre}` : ""}.`
-    : "Anotei tudo. Um consultor continua a conversa aqui mesmo em instantes.";
+export const despedidaPadrao = (r: Resultado) => {
+  const quem = r.nomeado && r.vendedor ? r.vendedor : "Um consultor";
+  return r.fila
+    ? `Anotei tudo. ${quem} continua a conversa aqui mesmo assim que a loja abrir${r.abre ? `, ${r.abre}` : ""}.`
+    : `Anotei tudo. ${quem} continua a conversa aqui mesmo em instantes.`;
+};

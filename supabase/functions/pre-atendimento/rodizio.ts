@@ -3,13 +3,26 @@
 // escrita ao lead pelo aplicativo da loja (o eco que a Meta manda), não importa quem escreveu.
 // Funções puras, testadas em rodizio_test.ts.
 
-export type Vendedor = { id: string; ativo: boolean; ordem: number; ultimo_lead_em: string | null };
+export type Vendedor = { id: string; ativo: boolean; ordem: number; ultimo_lead_em: string | null; no_rodizio?: boolean; nome?: string };
 
-/* o da vez: ativo, ainda não avisado neste lead, há mais tempo sem receber (quem nunca recebeu vem primeiro) */
+/* o da vez: ativo, no rodízio, ainda não avisado neste lead, há mais tempo sem receber (quem nunca recebeu vem primeiro) */
 export function proximoVendedor<T extends Vendedor>(equipe: T[], jaAvisados: string[]): T | null {
   return equipe
-    .filter((v) => v.ativo && !jaAvisados.includes(v.id))
+    .filter((v) => v.ativo && v.no_rodizio !== false && !jaAvisados.includes(v.id))
     .sort((a, b) => (a.ultimo_lead_em ?? "").localeCompare(b.ultimo_lead_em ?? "") || a.ordem - b.ordem)[0] ?? null;
+}
+
+/* o lead pediu alguém do time pelo nome ("o Pedro me indicou", "quero falar com o Rafael"). Vale para quem está
+   fora do rodízio também. "Rafa" acha "Rafael" e vice-versa; nome que não é do time não acha ninguém. */
+export function pessoaPedida<T extends Vendedor>(equipe: T[], pedido: string | null | undefined): T | null {
+  const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().split(/\s+/)[0] ?? "";
+  const quem = norm(pedido ?? "");
+  if (quem.length < 3 || quem === "nenhum") return null;
+  const achados = equipe.filter((v) => {
+    const n = norm(v.nome ?? "");
+    return v.ativo && n.length >= 3 && (n === quem || n.startsWith(quem) || quem.startsWith(n));
+  });
+  return achados.find((v) => norm(v.nome ?? "") === quem) ?? (achados.length === 1 ? achados[0] : null);
 }
 
 /* repassa quando o vendedor da vez foi avisado há mais que o prazo e ninguém escreveu ao lead */

@@ -3,6 +3,7 @@
 // Serve para calibrar o robô antes de ligar a loja e depois de cada ajuste de prompt.
 import type Anthropic from "npm:@anthropic-ai/sdk";
 import { AVISO_PADRAO, despedidaPadrao, exigirConvite, notasDaConversa, semAvisoRepetido, semFrasesFeitas, semTravessao, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
+import { pessoaPedida } from "./rodizio.ts";
 import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 
 export type Cenario = {
@@ -46,9 +47,14 @@ export async function simular(
         const t = await rodarTurno({
           cliente, modelo: loja.modelo, sistema, messages,
           validar: exigirConvite(historico, loja.endereco),
-          aoEncaminhar: async (e) => horario.aberta
-            ? { ok: true, vendedor: "consultor da vez" }
-            : { ok: true, vendedor: null, fila: true, abre: horario.abre },
+          aoEncaminhar: async (e) => {
+            /* mesma regra do real: cliente que pede alguém do time pelo nome vai para essa pessoa */
+            const equipe = ((loja.equipe ?? []) as string[]).map((nome, ordem) => ({ id: nome, nome, ativo: true, ordem, ultimo_lead_em: null }));
+            const pedida = pessoaPedida(equipe, e.consultor)?.nome ?? null;
+            return horario.aberta
+              ? { ok: true, vendedor: pedida ?? "consultor da vez", nomeado: !!pedida }
+              : { ok: true, vendedor: pedida, nomeado: !!pedida, fila: true, abre: horario.abre };
+          },
         });
         custo += t.custo;
         let texto = semFrasesFeitas(semTravessao((t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n")));
