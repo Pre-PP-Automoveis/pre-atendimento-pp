@@ -16,13 +16,14 @@ pela API (coexistência da Meta). Ninguém precisa trocar de aplicativo.
 3. A função espera 5 segundos para o lead terminar de digitar e responde uma vez só.
 4. A Claude responde com a ficha, faz as três perguntas (troca, pagamento, prazo) e chama `encaminhar_ao_vendedor`.
 5. O consultor da vez (rodízio sequencial, `rodizio.ts`, só quem tem `no_rodizio`) vê o lead no **painel de leads**
-   (`www.mozabr.com.br/pp/painel?t=<token pessoal>`), com o resumo, e responde pelo aplicativo da loja, na mesma
+   (pasta `painel/`, projeto próprio na Vercel, `https://pp-painel-leads.vercel.app/?t=<token pessoal>`), com o resumo, e responde pelo aplicativo da loja, na mesma
    conversa. Com `aviso_modo = 'whatsapp'` ele também recebe o modelo aprovado no WhatsApp pessoal.
    Cliente que chama alguém do time pelo nome ou diz que foi indicado vai direto para essa pessoa, dentro ou fora do
    rodízio, sem repasse automático (`fixado_por = 'lead'`).
    O link de quem tem `gerente = true` abre a loja inteira: o gerente puxa lead para si, passa para outra pessoa
    (`fixado_por = 'gerente'`, tira do robô na hora), liga e desliga gente do rodízio e marca "não é lead"
    (`pa_ignorados`: o robô não responde mais o contato). Links gerados por `scripts/links-painel.sh`.
+   O endereço do painel precisa estar no segredo `PAINEL_ORIGENS` da função, senão o navegador bloqueia a leitura.
 6. **Quando qualquer pessoa do time escreve ao lead pelo aplicativo**, a Meta manda o eco (`smb_message_echoes`):
    o robô sai da conversa e o eco vira o carimbo `primeira_acao_humana_em`. Vale também se o time entrar antes
    do robô encaminhar.

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leads PP Automóveis</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#F3F5F4">
+<link rel="icon" href="data:,">
+<style>
+  :root { --f-corpo: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; --f-display: var(--f-corpo); --p-chao:#F3F5F4; --p-folha:#FFFFFF; --p-tinta:#15201C; --p-apoio:#5B6863; --p-fio:#D9DFDC; --p-acao:#0071AD;
+          --p-vez:#0F7B5C; --p-vez-f:#E1F3EB; --p-urg:#B3261E; --p-urg-f:#FBE7E5; --p-meio:#9A5B00; --p-meio-f:#FFF1D6; }
+  @media (prefers-color-scheme: dark) { :root { --f-corpo: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; --f-display: var(--f-corpo); --p-chao:#0F1513; --p-folha:#18201D; --p-tinta:#E4EBE8; --p-apoio:#9AA7A2; --p-fio:#2A3430;
+          --p-acao:#5CBDF5; --p-vez:#5ACCA2; --p-vez-f:#16302A; --p-urg:#F2837A; --p-urg-f:#3A1D1B; --p-meio:#F2BE6B; --p-meio-f:#3A2E16; color-scheme: dark; } }
+  html, body { background: var(--p-chao); color: var(--p-tinta); }
+  body { margin: 0; font: 400 15px/1.5 var(--f-corpo, 'Manrope', system-ui, sans-serif); padding-inline: 16px; padding-block: 18px 48px; }
+  .pg { max-width: 760px; margin: 0 auto; display: grid; gap: 18px; }
+  .pg > * { min-width: 0; }
+  .topo { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+  .topo h1 { margin: 0; font: 500 clamp(24px, 6vw, 32px)/1.1 var(--f-display, 'Jost', sans-serif); }
+  .topo p { margin: 4px 0 0; color: var(--p-apoio); font-size: 13px; }
+  .som { font: 600 13px/1 var(--f-corpo, sans-serif); color: var(--p-acao); background: none; border: 1px solid var(--p-fio); border-radius: 6px; padding: 9px 12px; cursor: pointer; min-height: 44px; }
+  .som[aria-pressed="true"] { color: var(--p-vez); border-color: var(--p-vez); }
+  h2 { margin: 6px 0 0; font: 600 15px/1.2 var(--f-corpo, sans-serif); letter-spacing: .04em; text-transform: uppercase; color: var(--p-apoio); display: flex; gap: 8px; align-items: center; }
+  h2 .n { background: var(--p-fio); color: var(--p-tinta); border-radius: 999px; padding: 2px 8px; font-size: 12px; letter-spacing: 0; }
+  .lista { display: grid; gap: 10px; }
+  .lista > * { min-width: 0; }
+  .card { background: var(--p-folha); border: 1px solid var(--p-fio); border-radius: 10px; padding: 14px; display: grid; gap: 8px; min-width: 0; }
+  .card.vez { border-left: 5px solid var(--p-vez); }
+  .card.urg { border-left: 5px solid var(--p-urg); background: linear-gradient(0deg, var(--p-urg-f), var(--p-urg-f)); }
+  .linha1 { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .nome { font: 600 17px/1.25 var(--f-corpo, sans-serif); }
+  .tempo { font: 600 13px/1 var(--f-corpo, sans-serif); padding: 5px 8px; border-radius: 999px; background: var(--p-vez-f); color: var(--p-vez); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .tempo.urg { background: var(--p-urg-f); color: var(--p-urg); }
+  .tempo.meio { background: var(--p-meio-f); color: var(--p-meio); }
+  .carro { color: var(--p-tinta); }
+  .det { display: grid; grid-template-columns: max-content minmax(0,1fr); gap: 2px 10px; font-size: 14px; color: var(--p-apoio); margin: 0; }
+  .det dt { font-weight: 600; } .det dd { margin: 0; color: var(--p-tinta); overflow-wrap: anywhere; }
+  .acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .abrir { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 14px; border-radius: 8px; background: var(--p-vez); color: #fff; font-weight: 600; text-decoration: none; }
+  .btn { min-height: 44px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--p-acao); background: none; color: var(--p-acao); font: 600 15px/1 var(--f-corpo, sans-serif); cursor: pointer; }
+  .btn:disabled, select:disabled { opacity: .5; cursor: wait; }
+  select { min-height: 44px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--p-fio); background: var(--p-folha); color: var(--p-tinta); font: 500 15px/1.2 var(--f-corpo, sans-serif); max-width: 100%; }
+  .sutil { background: none; border: 0; color: var(--p-apoio); font: 500 14px/1 var(--f-corpo, sans-serif); text-decoration: underline; cursor: pointer; min-height: 44px; padding: 0 6px; }
+  .fone { font-variant-numeric: tabular-nums; color: var(--p-apoio); font-size: 14px; }
+  .vazio { color: var(--p-apoio); background: var(--p-folha); border: 1px dashed var(--p-fio); border-radius: 10px; padding: 14px; margin: 0; }
+  details { background: var(--p-folha); border: 1px solid var(--p-fio); border-radius: 10px; padding: 10px 14px; }
+  details summary { cursor: pointer; font-weight: 600; min-height: 32px; display: list-item; }
+  details .lista { margin-top: 10px; }
+  details .card { border-color: var(--p-fio); background: var(--p-chao); }
+  .mini { font-size: 14px; display: flex; justify-content: space-between; gap: 10px; border-top: 1px solid var(--p-fio); padding-top: 8px; flex-wrap: wrap; }
+  .mini:first-child { border-top: 0; padding-top: 0; }
+  .roda { display: grid; gap: 0; background: var(--p-folha); border: 1px solid var(--p-fio); border-radius: 10px; }
+  .roda > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--p-fio); flex-wrap: wrap; min-width: 0; }
+  .roda > div:first-child { border-top: 0; }
+  .roda .quem { display: grid; }
+  .roda .quem small { color: var(--p-apoio); font-size: 13px; }
+  .chave { min-height: 44px; min-width: 120px; border-radius: 999px; border: 1px solid var(--p-fio); background: var(--p-chao); color: var(--p-apoio); font: 600 14px/1 var(--f-corpo, sans-serif); cursor: pointer; padding: 0 14px; }
+  .chave[aria-pressed="true"] { background: var(--p-vez-f); color: var(--p-vez); border-color: var(--p-vez); }
+  .placar { overflow-x: auto; background: var(--p-folha); border: 1px solid var(--p-fio); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; min-width: 460px; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--p-fio); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--p-apoio); }
+  .aviso { background: var(--p-urg-f); color: var(--p-urg); border-radius: 10px; padding: 14px; margin: 0; }
+  .nota { color: var(--p-apoio); font-size: 13px; margin: -8px 0 0; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  a:focus-visible, button:focus-visible, summary:focus-visible, select:focus-visible { outline: 2px solid var(--p-acao); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main class="pg">
+  <header class="topo">
+    <div><h1 id="titulo">Painel de leads</h1><p id="sub">Carregando</p></div>
+    <button class="som" id="som" type="button" aria-pressed="false">Ativar aviso de lead novo</button>
+  </header>
+  <div id="conteudo" class="lista"></div>
+</main>
+<script>
+/* Painel de leads da Pedro Paulo Automóveis. Lê só o banco do pré-atendimento da PP; cada pessoa do time tem um link.
+   Projeto próprio na Vercel, separado do site da Moza: um push na main publica. */
+var FUNCAO = "https://qdzuwnqejtjbtcysteip.supabase.co/functions/v1/pre-atendimento?painel=";
+var token = new URLSearchParams(location.search).get("t") || "";
+var conteudo = document.getElementById("conteudo");
+var dados = null, vistos = null, somLigado = false, ctx = null, ocupado = false;
+
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+function minutosDesde(iso) { return iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000)) : null; }
+function hora(iso) { return iso ? new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }) : ""; }
+function dia(iso) { return iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" }) : ""; }
+function gerente() { return dados && dados.quem === "gerente"; }
+
+function detalhes(l) {
+  var linhas = [["Origem", l.origem], ["Troca", l.troca], ["Pagamento", l.pagamento], ["Visita", l.visita], ["Pendências", l.pendencias], ["Resumo", l.resumo]]
+    .filter(function (p) { return p[1] && !/^n[aã]o perguntado$|^nenhuma$|^ver na conversa$|^n[aã]o identificado$/i.test(p[1]); });
+  return linhas.length ? '<dl class="det">' + linhas.map(function (p) { return "<dt>" + p[0] + "</dt><dd>" + esc(p[1]) + "</dd>"; }).join("") + "</dl>" : "";
+}
+
+/* tempo no selo: com repasse automático, o que falta; com dono fixo, há quanto tempo espera */
+function selo(l, praMim) {
+  var esperando = minutosDesde(l.avisado_em), prazo = dados.prazo_repasse_min;
+  if (l.escalado) return { classe: "urg", texto: "ninguém respondeu" };
+  if (l.fixado_por) {
+    var porque = l.fixado_por === "lead" ? (praMim ? "pediu por você" : "pediu por " + (l.consultor || "alguém")) : (praMim ? "passado para você" : "passado para " + (l.consultor || ""));
+    return { classe: esperando >= prazo ? "urg" : "", texto: porque + (esperando ? ", " + esperando + " min" : "") };
+  }
+  var falta = esperando == null ? null : Math.max(0, prazo - esperando);
+  return { classe: falta !== null && falta <= 3 ? "urg" : falta !== null && falta <= 7 ? "meio" : "",
+           texto: falta === null ? "" : falta === 0 ? "passando adiante" : "repassa em " + falta + " min" };
+}
+
+function acoesGerente(l) {
+  if (!gerente()) return "";
+  var opcoes = dados.equipe.filter(function (e) { return e.id !== l.consultor_id; }).map(function (e) {
+    return '<option value="' + e.id + '">' + esc(e.nome) + (e.id === dados.eu ? " (você)" : "") + "</option>";
+  }).join("");
+  return (l.consultor_id !== dados.eu ? '<button class="btn" type="button" data-acao="passar" data-id="' + l.id + '" data-para="' + dados.eu + '" data-nome="' + esc(l.nome) + '">Puxar para mim</button>' : "") +
+    '<label><span class="sr">Passar ' + esc(l.nome) + ' para</span><select data-acao="passar-para" data-id="' + l.id + '" data-nome="' + esc(l.nome) + '"><option value="">Passar para…</option>' + opcoes + "</select></label>" +
+    '<button class="sutil" type="button" data-acao="nao_e_lead" data-id="' + l.id + '" data-nome="' + esc(l.nome) + '">Não é lead</button>';
+}
+
+function cardVez(l, mostrarConsultor) {
+  var s = selo(l, !mostrarConsultor || l.consultor_id === dados.eu);
+  return '<article class="card ' + (s.classe === "urg" ? "urg" : "vez") + '">' +
+    '<div class="linha1"><span class="nome">' + esc(l.nome) + '</span><span class="tempo ' + s.classe + '">' + esc(s.texto) + "</span></div>" +
+    '<div class="carro">' + esc(l.carro) + (mostrarConsultor && l.consultor ? " · com " + esc(l.consultor) : "") + " · chegou às " + hora(l.chegou_em) + "</div>" +
+    detalhes(l) +
+    '<div class="acoes"><a class="abrir" href="' + esc(l.whatsapp_link) + '" target="_blank" rel="noopener">Abrir conversa</a><span class="fone">' + esc(l.telefone) + "</span></div>" +
+    (gerente() ? '<div class="acoes">' + acoesGerente(l) + "</div>" : "") + "</article>";
+}
+
+/* lead com o robô, na fila ou já atendido: compacto, com as ações do gerente */
+function cardCurto(l, extra) {
+  return '<article class="card"><div class="linha1"><span class="nome">' + esc(l.nome) + '</span><span class="fone">' + extra + "</span></div>" +
+    '<div class="carro">' + esc(l.carro) + (l.consultor ? " · com " + esc(l.consultor) : "") + "</div>" +
+    '<div class="acoes"><a class="btn" href="' + esc(l.whatsapp_link) + '" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center">Ver conversa</a>' + acoesGerente(l) + "</div></article>";
+}
+
+function mini(l, extra) {
+  return '<div class="mini"><span><b>' + esc(l.nome) + "</b> · " + esc(l.carro) + "</span><span>" + extra + "</span></div>";
+}
+
+function bloco(titulo, itens, render, vazio) {
+  return "<h2>" + titulo + ' <span class="n">' + itens.length + "</span></h2>" +
+    (itens.length ? '<div class="lista">' + itens.map(render).join("") + "</div>" : '<p class="vazio">' + vazio + "</p>");
+}
+
+function recolhido(titulo, itens, render, aberto) {
+  if (!itens.length) return "";
+  return "<details" + (aberto ? " open" : "") + "><summary>" + titulo + " (" + itens.length + ")</summary><div class=\"lista\">" + itens.map(render).join("") + "</div></details>";
+}
+
+function rodizio() {
+  var naRoda = dados.equipe.filter(function (e) { return e.no_rodizio; });
+  var linhas = dados.equipe.map(function (e) {
+    var info = [e.proximo ? "próximo da vez" : "", e.esperando ? e.esperando + " esperando resposta" : ""].filter(Boolean).join(" · ");
+    return '<div><span class="quem"><b>' + esc(e.nome) + (e.id === dados.eu ? " (você)" : "") + "</b>" + (info ? "<small>" + info + "</small>" : "") + "</span>" +
+      '<button class="chave" type="button" aria-pressed="' + e.no_rodizio + '" data-acao="rodizio" data-vend="' + e.id + '" data-valor="' + !e.no_rodizio + '" data-nome="' + esc(e.nome) + '">' +
+      (e.no_rodizio ? "No rodízio" : "Fora do rodízio") + "</button></div>";
+  }).join("");
+  return "<h2>Rodízio</h2>" + (naRoda.length ? "" : '<p class="aviso">Ninguém está no rodízio. Os leads ficam parados até alguém entrar.</p>') +
+    '<div class="roda">' + linhas + "</div>" +
+    '<p class="nota">Quem está fora do rodízio não recebe lead automático, mas recebe o que você passar e o cliente que pedir a pessoa pelo nome.</p>';
+}
+
+function desenhar() {
+  if (!dados) return;
+  /* não redesenha com uma lista de "passar para" aberta na mão do gerente */
+  if (ocupado || (document.activeElement && document.activeElement.tagName === "SELECT" && conteudo.contains(document.activeElement))) return;
+  var html = "";
+  if (dados.quem === "consultor") {
+    document.getElementById("titulo").textContent = "Olá, " + dados.nome.split(" ")[0];
+    html += bloco("Sua vez agora", dados.sua_vez, function (l) { return cardVez(l, false); }, "Nenhum lead esperando por você. Quando chegar, ele aparece aqui.");
+    html += recolhido("Você atendeu", dados.atendidos, function (l) { return mini(l, "respondeu " + dia(l.atendido_em) + " às " + hora(l.atendido_em)); });
+    html += recolhido("Passaram para outra pessoa", dados.passaram, function (l) { return mini(l, l.consultor ? "agora com " + esc(l.consultor) : ""); });
+  } else {
+    document.getElementById("titulo").textContent = "Leads da loja";
+    if (dados.voce.sua_vez.length) html += bloco("Com você", dados.voce.sua_vez, function (l) { return cardVez(l, false); }, "");
+    var outros = dados.sem_resposta.filter(function (l) { return l.consultor_id !== dados.eu; });
+    html += bloco("Sem resposta", outros, function (l) { return cardVez(l, true); }, "Todo lead encaminhado já foi respondido.");
+    html += recolhido("Com o robô agora", dados.com_robo, function (l) { return cardCurto(l, "desde " + hora(l.chegou_em)); }, true);
+    html += recolhido("Na fila até a abertura", dados.fila_noite, function (l) { return cardCurto(l, "chegou " + dia(l.chegou_em) + " às " + hora(l.chegou_em)); });
+    html += recolhido("Atendidos hoje", dados.atendidos, function (l) { return cardCurto(l, hora(l.atendido_em)); });
+    html += rodizio();
+    if (dados.placar && dados.placar.length) {
+      html += "<h2>Hoje por consultor</h2><div class=\"placar\"><table><thead><tr><th>Consultor</th><th>Recebeu</th><th>Atendeu</th><th>Passou adiante</th><th>Tempo até responder</th></tr></thead><tbody>" +
+        dados.placar.map(function (p) { return "<tr><td>" + esc(p.consultor) + "</td><td>" + p.recebidos + "</td><td>" + p.atendidos + "</td><td>" + p.passaram_adiante + "</td><td>" + (p.minutos_ate_responder == null ? "" : p.minutos_ate_responder + " min") + "</td></tr>"; }).join("") +
+        "</tbody></table></div>";
+    }
+  }
+  conteudo.innerHTML = html;
+  var pendentes = esperando().length;
+  document.title = (pendentes ? "(" + pendentes + ") " : "") + "Leads " + dados.loja;
+  document.getElementById("sub").textContent = dados.loja + " · " + dados.horario + " · atualizado às " + hora(dados.atualizado_em);
+}
+
+/* o que dispara o aviso: a vez da pessoa e, para o gerente, também tudo que está sem resposta */
+function esperando() {
+  if (!dados) return [];
+  return dados.quem === "consultor" ? dados.sua_vez : dados.voce.sua_vez.concat(dados.sem_resposta);
+}
+
+function avisar(novos) {
+  if (!novos) return;
+  if (somLigado && ctx) {
+    [0, 0.25].forEach(function (t) {
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 880; g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.2);
+      o.connect(g); g.connect(ctx.destination); o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.22);
+    });
+  }
+  if (window.Notification && Notification.permission === "granted") {
+    try { new Notification("Lead novo para atender", { body: novos === 1 ? "Abra o painel para ver." : novos + " leads esperando." }); } catch (e) {}
+  }
+}
+
+function carregar() {
+  if (!token) { conteudo.innerHTML = '<p class="aviso">Este link está incompleto. Peça o seu link ao gerente.</p>'; document.getElementById("sub").textContent = ""; return; }
+  return fetch(FUNCAO + encodeURIComponent(token), { cache: "no-store" })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (res) {
+      if (!res.ok) { conteudo.innerHTML = '<p class="aviso">' + esc(res.j.erro || "Não foi possível abrir o painel.") + "</p>"; return; }
+      dados = res.j;
+      var ids = esperando().map(function (l) { return l.id; });
+      if (vistos) avisar(ids.filter(function (id) { return vistos.indexOf(id) < 0; }).length);
+      vistos = ids;
+      desenhar();
+    })
+    .catch(function () { document.getElementById("sub").textContent = "Sem conexão. Tentando de novo."; });
+}
+
+/* ações do gerente: o servidor confere que o link é de gerente */
+function agir(corpo, alvo) {
+  ocupado = true;
+  conteudo.querySelectorAll("button[data-acao], select[data-acao]").forEach(function (b) { b.disabled = true; });
+  fetch(FUNCAO + encodeURIComponent(token), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (res) { if (!res.ok) alert(res.j.erro || "Não deu certo. Tente de novo."); })
+    .catch(function () { alert("Sem conexão. Tente de novo."); })
+    .then(function () { ocupado = false; if (alvo) alvo.blur(); return carregar(); });
+}
+
+function nomeDe(id) { var e = dados.equipe.filter(function (x) { return x.id === id; })[0]; return e ? e.nome : ""; }
+
+conteudo.addEventListener("click", function (ev) {
+  var b = ev.target.closest("button[data-acao]");
+  if (!b || ocupado) return;
+  var nome = b.getAttribute("data-nome");
+  if (b.dataset.acao === "passar") {
+    agir({ acao: "passar", conversa_id: b.dataset.id, para: b.dataset.para });
+  } else if (b.dataset.acao === "nao_e_lead") {
+    if (confirm(nome + " não é lead? O robô para de responder este contato e ele sai do painel.")) agir({ acao: "nao_e_lead", conversa_id: b.dataset.id });
+  } else if (b.dataset.acao === "rodizio") {
+    agir({ acao: "rodizio", vendedor_id: b.dataset.vend, no_rodizio: b.dataset.valor === "true" });
+  }
+});
+
+conteudo.addEventListener("change", function (ev) {
+  var s = ev.target;
+  if (!s.matches || !s.matches("select[data-acao='passar-para']") || !s.value) return;
+  if (confirm("Passar " + s.getAttribute("data-nome") + " para " + nomeDe(s.value) + "?")) agir({ acao: "passar", conversa_id: s.dataset.id, para: s.value }, s);
+  else { s.value = ""; s.blur(); }
+});
+
+document.getElementById("som").addEventListener("click", function () {
+  var b = this;
+  somLigado = !somLigado;
+  b.setAttribute("aria-pressed", String(somLigado));
+  b.textContent = somLigado ? "Aviso de lead novo ligado" : "Ativar aviso de lead novo";
+  if (somLigado) {
+    try { ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); ctx.resume(); } catch (e) {}
+    if (window.Notification && Notification.permission === "default") { try { Notification.requestPermission(); } catch (e) {} }
+  }
+});
+
+carregar();
+setInterval(function () { if (!ocupado) carregar(); }, 20000);
+setInterval(desenhar, 30000); /* o tempo até o repasse anda entre uma leitura e outra */
+</script>
+</body>
+</html>

@@ -31,6 +31,14 @@ const corsCadastro = (origem: string | null) => ({
   "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "content-type", "Vary": "Origin",
 });
 
+/* o painel de leads é um projeto próprio de cada loja na Vercel, fora do site da Moza: o endereço vem do segredo
+   PAINEL_ORIGENS (um ou mais, separados por vírgula) */
+const ORIGENS_PAINEL = (Deno.env.get("PAINEL_ORIGENS") ?? "").split(",").map((o) => o.trim().replace(/\/$/, "")).filter(Boolean);
+const corsPainel = (origem: string | null) => ({
+  "Access-Control-Allow-Origin": origem && ORIGENS_PAINEL.includes(origem) ? origem : ORIGENS_PAINEL[0] ?? "null",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "content-type", "Vary": "Origin",
+});
+
 /* o lead costuma mandar três mensagens em sequência; o robô espera ele terminar e responde uma vez só */
 const ESPERA_MS = 5_000;
 /* sem mensagem nova por esse tempo, a próxima abre outro atendimento (e outro aviso do 8.5). Com vendedor já
@@ -50,9 +58,9 @@ type Linha = Record<string, any>;
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   /* verificação do webhook, feita uma vez no painel da Meta */
-  /* painel de leads (link pessoal de cada pessoa do time), lido pela página do site da Moza. POST: ações do gerente */
+  /* painel de leads (link pessoal de cada pessoa do time), lido pela página do painel da loja. POST: ações do gerente */
   if (url.searchParams.get("painel") !== null) {
-    const cabecalhos = { ...corsCadastro(req.headers.get("origin")), "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Content-Type": "application/json", "Cache-Control": "no-store" };
+    const cabecalhos = { ...corsPainel(req.headers.get("origin")), "Content-Type": "application/json", "Cache-Control": "no-store" };
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cabecalhos });
     const token = url.searchParams.get("painel") ?? "";
     const r = await (req.method === "POST" ? agirPainel(token, await req.json().catch(() => ({}))) : lerPainel(token))
