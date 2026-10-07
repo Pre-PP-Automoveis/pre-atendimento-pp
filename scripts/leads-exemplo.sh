@@ -31,7 +31,7 @@ ha = lambda m: (agora - datetime.timedelta(minutes=m)).isoformat()
 # mesma abertura do robô (conversa.ts, abertura): cumprimento pela hora de São Paulo, nome do cliente e a Bia se apresentando
 hora = (agora - datetime.timedelta(hours=3)).hour
 SAUDACAO = "Bom dia" if hora < 12 else "Boa tarde" if hora < 18 else "Boa noite"
-ABRE = lambda nome: (f"{SAUDACAO}, {nome}! Sou a Bia, assistente virtual da Pedro Paulo Automóveis. Vou iniciar o seu atendimento e fazer uma triagem rápida "
+ABRE = lambda nome: (f"{SAUDACAO}, {nome}! Sou a Bia, assistente da Pedro Paulo Automóveis. Vou iniciar o seu atendimento e fazer uma triagem rápida "
                      "para encontrar o carro ideal para você. Seus dados ficam só com a loja, e se preferir falar direto com um consultor é só pedir.")
 exemplos = [
   # 1. lead pronto, na vez do Rayan, com o relógio do repasse correndo

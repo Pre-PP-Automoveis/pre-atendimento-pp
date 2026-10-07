@@ -119,15 +119,24 @@ Deno.test("opinião sobre o modelo sai", () => {
 });
 
 import { abertura } from "./conversa.ts";
-Deno.test("abertura de consultoria com nome, que cumpre o item 8.5 do contrato", () => {
+Deno.test("abertura de consultoria com nome, sem falar em robô", () => {
   const t = abertura({ loja: "Pedro Paulo Automóveis", assistente: "Bia", nomeDoLead: "marcos vinicius", quando: new Date("2026-10-07T10:00:00-03:00") });
-  assertEquals(t.startsWith("Bom dia, Marcos! Sou a Bia, assistente virtual da Pedro Paulo Automóveis. Vou iniciar o seu atendimento e fazer uma triagem"), true);
-  assertEquals(/assistente virtual/.test(t) && /dados ficam só com a loja/.test(t) && /falar direto com um consultor/.test(t), true); // 8.5: automatizado, dados, pessoa
-  assertEquals(abertura({ loja: "PP", nomeDoLead: "AUTO PEÇAS 123", quando: new Date("2026-10-07T20:00:00-03:00") }).startsWith("Boa noite! Sou a assistente virtual da PP."), true);
+  assertEquals(t.startsWith("Bom dia, Marcos! Sou a Bia, assistente da Pedro Paulo Automóveis. Vou iniciar o seu atendimento e fazer uma triagem"), true);
+  assertEquals(/virtual|rob[oô]|autom[aá]tic/.test(t), false);
+  assertEquals(/dados ficam só com a loja/.test(t) && /falar direto com um consultor/.test(t), true);
+  assertEquals(abertura({ loja: "PP", nomeDoLead: "AUTO PEÇAS 123", quando: new Date("2026-10-07T20:00:00-03:00") }).startsWith("Boa noite! Sou a assistente da PP."), true);
 });
 
 Deno.test("primeira resposta sem segundo cumprimento nem segunda apresentação", () => {
-  assertEquals(semAvisoRepetido("Boa tarde, Gustavo! Sou a Bia, assistente virtual da loja. O Onix 2015 está por R$ 49.900.", "vi o onix"), "O Onix 2015 está por R$ 49.900.");
-  assertEquals(semAvisoRepetido("Sou a Bia, assistente virtual da loja, e um consultor assume quando você quiser.", "é robô?"),
-    "Sou a Bia, assistente virtual da loja, e um consultor assume quando você quiser.");
+  assertEquals(semAvisoRepetido("Boa tarde, Gustavo! Sou a Bia, assistente da loja. O Onix 2015 está por R$ 49.900.", "vi o onix"), "O Onix 2015 está por R$ 49.900.");
+  assertEquals(semAvisoRepetido("Sou a Bia, faço a triagem inicial de forma automática. Quer que um consultor assuma agora?", "é robô?"),
+    "Sou a Bia, faço a triagem inicial de forma automática. Quer que um consultor assuma agora?");
+});
+
+import { semMencaoDeRobo } from "./conversa.ts";
+Deno.test("robô e automático só aparecem quando o cliente pergunta, e aí a resposta não nega", () => {
+  const h = (t: string) => [{ autor: "lead", texto: t }];
+  assertEquals(semMencaoDeRobo("Sou um robô, mas o consultor confirma isso. Quer passar na loja?", h("tem multimídia?")), "Quer passar na loja?");
+  const honesta = "Eu faço a triagem inicial de forma automática. Se preferir, passo agora para um consultor.";
+  assertEquals(semMencaoDeRobo(honesta, h("vc é robô?")), honesta);
 });

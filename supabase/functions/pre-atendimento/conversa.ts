@@ -115,8 +115,9 @@ export async function rodarTurno(p: {
 }
 
 /* Abertura da primeira resposta, em texto fixo (pa_lojas.aviso_inicial manda, se existir). Tom de consultoria, com o nome da
-   assistente, e cumpre o item 8.5 do contrato: diz que é assistente virtual (sistema automatizado), para que servem os
-   dados e que dá para pedir um consultor. Cumprimento pela hora de São Paulo e pelo primeiro nome do perfil, se parecer nome. */
+   assistente, sem falar em robô ou assistente virtual (Kauan, 07/10/2026); diz para que servem os dados e que dá para pedir
+   um consultor. Cumprimento pela hora de São Paulo e pelo primeiro nome do perfil, se parecer nome.
+   Atenção: o item 8.5 do contrato pede dizer na primeira mensagem que a conversa é automatizada; o Kauan decidiu tirar. */
 export function abertura(p: { loja: string; assistente?: string | null; nomeDoLead?: string | null; quando?: Date }) {
   const hora = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", hour: "2-digit", hourCycle: "h23" }).format(p.quando ?? new Date()));
   const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
@@ -124,21 +125,21 @@ export function abertura(p: { loja: string; assistente?: string | null; nomeDoLe
   /* perfil com número ou com cara de empresa ("AUTO PEÇAS 123", "Loja do Zé") não vira nome de gente */
   const empresa = /\d|\b(ltda|me|eireli|auto|autos|pe[cç]as|ve[ií]culos|loja|motors?|multimarcas|oficial|store|com[eé]rcio|servi[cç]os|distribuidora)\b/i.test(p.nomeDoLead ?? "");
   const nome = !empresa && /^[A-Za-zÀ-ÿ]{2,15}$/.test(primeiro) ? primeiro[0].toUpperCase() + primeiro.slice(1).toLowerCase() : "";
-  const quem = p.assistente ? `Sou a ${p.assistente}, assistente virtual da ${p.loja}` : `Sou a assistente virtual da ${p.loja}`;
+  const quem = p.assistente ? `Sou a ${p.assistente}, assistente da ${p.loja}` : `Sou a assistente da ${p.loja}`;
   return `${saudacao}${nome ? `, ${nome}` : ""}! ${quem}. Vou iniciar o seu atendimento e fazer uma triagem rápida para encontrar o carro ideal para você. ` +
     "Seus dados ficam só com a loja, e se preferir falar direto com um consultor é só pedir.";
 }
 
 /* A abertura já cumprimenta e apresenta a assistente. Se o modelo cumprimentar ou se apresentar de novo, sai:
-   o cliente leria "boa tarde" e "assistente virtual" duas vezes. A apresentação fica quando o cliente perguntou se é robô. */
+   o cliente leria "boa tarde" e a apresentação duas vezes. A apresentação fica quando o cliente perguntou se é robô. */
 export function semAvisoRepetido(texto: string, mensagemDoLead: string) {
   /* cumprimento solto no começo ("Boa tarde, Gustavo!", "Oi!") sai sempre: a abertura já cumprimentou */
   const semOi = texto.replace(/^\s*(oi|ol[aá]|bom dia|boa tarde|boa noite)\b[^.!?\n]{0,30}[!.]\s*/i, "").trim();
   texto = semOi.length >= 12 ? semOi[0].toUpperCase() + semOi.slice(1) : texto;
   /* marcações do sistema ("[a pessoa mandou um áudio…]") não contam como pergunta do cliente */
   if (/rob[oô]|autom[aá]tic|virtual|pessoa|humano|atendente|quem (é|e) voc/i.test(mensagemDoLead.replace(/\[[^\]]*\]/g, ""))) return texto;
-  /* "Sou a Bia, assistente virtual da loja" de novo: a frase sai */
-  texto = texto.split(/(?<=[.!?])\s+/).filter((f) => !/assistente virtual|^(eu )?sou (a|o) [A-ZÀ-Ú]\p{L}+[,.!]|^aqui (é|e) (a|o) [A-ZÀ-Ú]\p{L}+[,.!]|^me chamo /u.test(f)).join(" ") || texto;
+  /* "Sou a Bia, assistente da loja" de novo: a frase sai */
+  texto = texto.split(/(?<=[.!?])\s+/).filter((f) => !/assistente (virtual )?d[ae]|assistente virtual|^(eu )?sou (a|o) [A-ZÀ-Ú]\p{L}+[,.!]|^aqui (é|e) (a|o) [A-ZÀ-Ú]\p{L}+[,.!]|^me chamo /u.test(f)).join(" ") || texto;
   /* tira só o trecho em que ele se anuncia; a frase some inteira apenas se não sobrar conteúdo */
   const trecho = /(,\s*)?((este|esse|aqui)\s+)?(é\s+)?(?<![\p{L}])(o\s+)?atendimento\s+(é\s+)?autom[aá]tico(\s+da\s+(?:(?!\s+e\s+)[^,.!?])*)?(\s+e\s+|\s*,\s*|\s*[.!]\s*)?/iu;
   const frases = texto.split(/(?<=[.!?])\s+/).map((f) => {
@@ -249,9 +250,21 @@ export function semPerguntaRepetida(texto: string, historico: Msg[]) {
   return (limpas.length ? limpas : frases).join(" ").trim();
 }
 
+/* Robô, inteligência artificial, assistente virtual ou atendimento automático só aparecem se o cliente perguntou
+   (Kauan, 07/10/2026). Perguntado de verdade, a assistente não nega: confirma que a triagem é automática e oferece o consultor. */
+const PERGUNTOU_SE_E_ROBO = /rob[oô]|\bbot\b|autom[aá]tic|virtual|intelig[eê]ncia artificial|\bia\b|chatgpt|pessoa de verdade|humano|gente de verdade|quem (é|e|ta|tá) (voc|falando)/i;
+export function semMencaoDeRobo(texto: string, historico: Msg[]) {
+  const ultimaDoLead = [...historico].reverse().find((m) => m.autor === "lead")?.texto ?? "";
+  if (PERGUNTOU_SE_E_ROBO.test(ultimaDoLead.replace(/\[[^\]]*\]/g, ""))) return texto;
+  const frases = texto.split(/(?<=[.!?])\s+/);
+  /* fronteira com \p{L}: o \b do JavaScript não enxerga "ô" como letra e deixava "robô" passar */
+  const limpas = frases.filter((f) => !/(?<!\p{L})rob[oô](?!\p{L})|intelig[eê]ncia artificial|(?<!\p{L})IA(?!\p{L})|assistente virtual|autom[aá]tic[oa]|(?<!\p{L})sistema(?!\p{L})/u.test(f));
+  return (limpas.length ? limpas : frases).join(" ").trim();
+}
+
 /* tudo o que passa pelo texto do robô antes de sair, igual no atendimento real e no simulador */
 export const polir = (texto: string, historico: Msg[], encaminhado: boolean) =>
-  semPerguntaRepetida(semPromessaAntesDaHora(semFrasesFeitas(semTravessao(texto)), encaminhado), historico);
+  semMencaoDeRobo(semPerguntaRepetida(semPromessaAntesDaHora(semFrasesFeitas(semTravessao(texto)), encaminhado), historico), historico);
 
 /* despedida de reserva, quando o modelo encaminhou e não escreveu nada */
 export const despedidaPadrao = (r: Resultado) => {
