@@ -124,10 +124,16 @@ export function semAvisoRepetido(texto: string, mensagemDoLead: string) {
   /* marcações do sistema ("[a pessoa mandou um áudio…]") não contam como pergunta do cliente */
   if (/rob[oô]|autom[aá]tic|pessoa|humano|atendente/i.test(mensagemDoLead.replace(/\[[^\]]*\]/g, ""))) return texto;
   /* tira só o trecho em que ele se anuncia; a frase some inteira apenas se não sobrar conteúdo */
-  const trecho = /(,\s*)?((este|esse|aqui)\s+)?(é\s+)?(o\s+)?atendimento\s+(é\s+)?autom[aá]tico(\s+da\s+[^,.!?]*)?(\s+e\s+|\s*,\s*|\s*[.!]\s*)?/i;
+  const trecho = /(,\s*)?((este|esse|aqui)\s+)?(é\s+)?(?<![\p{L}])(o\s+)?atendimento\s+(é\s+)?autom[aá]tico(\s+da\s+(?:(?!\s+e\s+)[^,.!?])*)?(\s+e\s+|\s*,\s*|\s*[.!]\s*)?/iu;
   const frases = texto.split(/(?<=[.!?])\s+/).map((f) => {
+    /* o robô comentando o aviso ("Esse aviso aqui é automático, já te explico"): sai, ou fica só o que vem depois dos dois-pontos */
+    if (/\baviso\b/i.test(f)) {
+      const depois = f.includes(":") ? f.slice(f.indexOf(":") + 1).trim() : "";
+      return depois.length < 12 ? "" : depois[0].toUpperCase() + depois.slice(1);
+    }
     if (!trecho.test(f)) return f;
-    const resto = f.replace(trecho, " ").replace(/^\W+/, "").replace(/\s{2,}/g, " ").trim();
+    /* "Oi! Esse é o atendimento automático, e infelizmente..." não pode virar "E infelizmente..." */
+    const resto = f.replace(trecho, " ").replace(/^\W+/, "").replace(/^(e|por isso|ent[aã]o|mas)\s+/i, "").replace(/\s{2,}/g, " ").trim();
     return resto.length < 12 ? "" : resto[0].toUpperCase() + resto.slice(1);
   }).filter(Boolean);
   return (frases.length ? frases.join(" ") : texto).trim();
@@ -183,13 +189,53 @@ export function exigirConvite(historico: Msg[], endereco: string | null) {
 }
 
 /* frases-padrão de atendimento que soam robóticas: saem, se sobrar texto */
+const ABERTURA_FEITA = /^(show|perfeito|[oó]timo|legal|entendido)\b[,!.]?\s*/i;
 export function semFrasesFeitas(texto: string) {
-  const frases = texto.split(/(?<=[.!?])\s+/);
-  const limpas = frases.filter((f) => !/^(posso te ajudar com mais|posso ajudar em mais|qualquer coisa,? (estou|t[ôo]) por aqui|em que (mais )?posso ajudar)/i.test(f.trim()))
-    /* bastidor que não pode chegar ao cliente */
+  /* bastidor nunca chega ao cliente, nem quando é o que sobra: o resto é acabamento e volta se apagar tudo */
+  const frases = texto.split(/(?<=[.!?])\s+/)
     .filter((f) => !/antes de encaminhar|aguardar a resposta d|vou aguardar|instru[cç][aã]o|encaminhamento|^j[aá] (te )?aviso antes/i.test(f));
+  const limpas = frases.filter((f) => !/posso te ajudar com (mais|outras?)|posso ajudar em mais|qualquer coisa,? (estou|t[ôo]) por aqui|em que (mais )?posso ajudar/i.test(f))
+    /* pedir licença para passar ao consultor: o roteiro manda passar, não perguntar */
+    .filter((f) => !/quer que eu (j[aá] )?(te )?(encaminhe|passe|coloque)|prefere que eu (te )?(encaminhe|passe|coloque)|posso (j[aá] )?te (colocar em contato|passar para|passar pr[oa])/i.test(f))
+    .filter((f) => !/^at[ée] j[aá]!?$/i.test(f.trim()))
+    .map((f) => f.replace(/,\s*show([.!])$/i, "$1"))
+    /* opinião sobre o modelo que não está na ficha */
+    .map((f) => f.replace(/,?\s*mas [^.?!]*\b(costuma|geralmente|normalmente)\b[^.?!]*/i, ""))
+    .filter((f) => !/\b(costuma|geralmente|normalmente) (ser|vir|ter)\b/i.test(f))
+    /* "Perfeito, Carla." sozinho cai; "Show, Marcos, já anotei" vira "Marcos, já anotei" */
+    .map((f, i) => {
+      if (i > 0 || !ABERTURA_FEITA.test(f)) return f;
+      const resto = f.replace(ABERTURA_FEITA, "").trim();
+      if (!resto || /^[\p{L}]+(\s[\p{L}]+){0,2}[.!]?$/u.test(resto)) return ""; // sobrou só o nome da pessoa
+      return resto[0].toUpperCase() + resto.slice(1);
+    })
+    .filter(Boolean);
   return (limpas.length ? limpas : frases).join(" ").trim();
 }
+
+/* "um consultor pode continuar por aqui" num turno em que ninguém foi chamado é promessa que não acontece */
+export function semPromessaAntesDaHora(texto: string, encaminhado: boolean) {
+  if (encaminhado) return texto;
+  const frases = texto.split(/(?<=[.!?])\s+/);
+  const limpas = frases.filter((f) => !/\bconsultor\b.{0,25}\b(pode continuar|continua (com voc[eê]|por aqui|a conversa|aqui))/i.test(f));
+  return (limpas.length ? limpas : frases).join(" ").trim();
+}
+
+/* pergunta da triagem feita na mensagem anterior e ainda sem resposta não volta na mensagem seguinte */
+export function semPerguntaRepetida(texto: string, historico: Msg[]) {
+  const anterior = [...historico].reverse().find((m) => m.autor === "robo")?.texto ?? "";
+  const falasDoLead = historico.filter((m) => m.autor === "lead").map((m) => m.texto).join(" \n ");
+  const pendentes = Object.values(TEMAS).filter((t) =>
+    (anterior.match(/[^.!?]*\?/g) ?? []).some((q) => t.pergunta.test(q)) && !t.resposta.test(falasDoLead));
+  if (!pendentes.length) return texto;
+  const frases = texto.split(/(?<=[.!?])\s+/);
+  const limpas = frases.filter((f) => !(f.trim().endsWith("?") && pendentes.some((t) => t.pergunta.test(f))));
+  return (limpas.length ? limpas : frases).join(" ").trim();
+}
+
+/* tudo o que passa pelo texto do robô antes de sair, igual no atendimento real e no simulador */
+export const polir = (texto: string, historico: Msg[], encaminhado: boolean) =>
+  semPerguntaRepetida(semPromessaAntesDaHora(semFrasesFeitas(semTravessao(texto)), encaminhado), historico);
 
 /* despedida de reserva, quando o modelo encaminhou e não escreveu nada */
 export const despedidaPadrao = (r: Resultado) => {

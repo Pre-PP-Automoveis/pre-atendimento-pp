@@ -38,3 +38,25 @@ Deno.test("carro do link sem ficha vem marcado como não confirmável", () => {
   assertStringIncludes(c, "sem ficha cadastrada");
   assertStringIncludes(c, "primeira resposta");
 });
+
+import { notaDeCor } from "./prompt.ts";
+Deno.test("cliente cita cor: a nota traz a cor de cada carro do modelo citado, pela ficha", () => {
+  const v = (id: string, titulo: string, observacoes: string, laudo = "APROVADO") =>
+    ({ id, titulo, observacoes, laudo_cautelar: laudo, disponivel: true, preco: null, km: null, leilao: null, unico_dono: null, anuncios: {} });
+  const estoque = [v("1", "Chevrolet CRUZE LT NB 2012/2013 flex", "cor preta"), v("2", "Chevrolet CRUZE LTZ HB 2013/2014 flex", "cor branca"),
+    v("3", "Chevrolet ONIX 1.4MT LT 2014/2015 flex", "cor preta"), v("4", "Honda CR-V EXL 2013", "cor prata", "REPROVADO")];
+  const nota = notaDeCor([{ autor: "lead", texto: "qual o valor do cruze preto?" }], estoque)!;
+  assertEquals(nota.includes("CRUZE LT NB 2012/2013 flex (preta)") && nota.includes("CRUZE LTZ HB 2013/2014 flex (branca)"), true);
+  assertEquals(nota.includes("ONIX"), false);
+  assertEquals(notaDeCor([{ autor: "lead", texto: "qual o valor do cruze?" }], estoque), null);
+  assertEquals(notaDeCor([{ autor: "lead", texto: "tem CR-V prata?" }], estoque), null); // carro reprovado não entra
+});
+
+Deno.test("nota de cor separa o carro da cor pedida dos de outra cor", () => {
+  const v = (id: string, titulo: string, observacoes: string) =>
+    ({ id, titulo, observacoes, laudo_cautelar: "APROVADO", disponivel: true, preco: null, km: null, leilao: null, unico_dono: null, anuncios: {} });
+  const nota = notaDeCor([{ autor: "lead", texto: "qual o valor do cruze preto?" }],
+    [v("1", "Chevrolet CRUZE LT NB 2012/2013 flex", "cor preta"), v("2", "Chevrolet CRUZE LTZ HB 2013/2014 flex", "cor branca")])!;
+  assertEquals(nota.includes("dessa cor só existe: Chevrolet CRUZE LT NB 2012/2013 flex (preta)"), true);
+  assertEquals(nota.includes("De outra cor: Chevrolet CRUZE LTZ HB 2013/2014 flex (branca)"), true);
+});

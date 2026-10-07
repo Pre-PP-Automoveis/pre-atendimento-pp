@@ -7,11 +7,11 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { lerOrigem, type Referral } from "./origem.ts";
-import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
+import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 import { foneLegivel, passouDoRobo, pessoaPedida, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
-import { AVISO_PADRAO, despedidaPadrao, exigirConvite, notasDaConversa, semAvisoRepetido, semFrasesFeitas, semTravessao, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { AVISO_PADRAO, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 import { equipeDoPainel, painelAdmin, painelConsultor, painelGerente } from "./painel.ts";
 import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
@@ -299,7 +299,7 @@ async function responder(loja: Linha, conversaId: string) {
   const messages = montarMensagens(historico ?? [], contextoTurno({
     agora: agoraSP(), horario: situacaoHorario(loja.horario ?? {}).texto, canal: conversa.origem,
     veiculoAnuncio: conversa.origem_detalhe?.veiculo_texto ?? null, ficha, primeiroTurno, nome: conversa.lead_nome,
-    notas: notasDaConversa(historico ?? [], loja.endereco, primeiroNome(conversa.lead_nome) || null),
+    notas: [...notasDaConversa(historico ?? [], loja.endereco, primeiroNome(conversa.lead_nome) || null), ...[notaDeCor(historico ?? [], veiculos)].filter((n): n is string => !!n)],
   }));
   if (!messages) return;
 
@@ -337,7 +337,9 @@ async function responder(loja: Linha, conversaId: string) {
   if (agoraConversa?.primeira_acao_humana_em) return;
   if (!encaminhado && agoraConversa?.estado !== "robo") return; // o cron dos 15 minutos encaminhou no meio
   /* aviso do item 8.5 abrindo a primeira mensagem, em texto fixo */
-  let texto = semFrasesFeitas(semTravessao(textos.join("\n\n")));
+  let texto = polir(textos.join("\n\n"), historico ?? [], !!encaminhado);
+  if (!texto && encaminhado) texto = despedidaPadrao(encaminhado);
+  if (!texto) return;
   if (primeiroTurno) {
     const ultimaDoLead = [...(historico ?? [])].reverse().find((m) => m.autor === "lead")?.texto ?? "";
     texto = `${loja.aviso_inicial || AVISO_PADRAO(loja.nome)}\n\n${semAvisoRepetido(texto, ultimaDoLead)}`;

@@ -2,9 +2,9 @@
 // O encaminhamento é de mentira, mas segue a regra real do horário: loja aberta avisa, loja fechada vai para a fila.
 // Serve para calibrar o robô antes de ligar a loja e depois de cada ajuste de prompt.
 import type Anthropic from "npm:@anthropic-ai/sdk";
-import { AVISO_PADRAO, despedidaPadrao, exigirConvite, notasDaConversa, semAvisoRepetido, semFrasesFeitas, semTravessao, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
+import { AVISO_PADRAO, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
 import { pessoaPedida } from "./rodizio.ts";
-import { agoraSP, contextoTurno, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
+import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 
 export type Cenario = {
   nome: string;
@@ -40,7 +40,7 @@ export async function simular(
       const messages = montarMensagens(historico, contextoTurno({
         agora: agoraSP(quando), horario: horario.texto, canal: c.canal ?? "Não identificado",
         veiculoAnuncio: c.veiculo_texto ?? null, ficha, primeiroTurno: i === 0, nome: c.lead_nome ?? null,
-        notas: notasDaConversa(historico, loja.endereco, (c.lead_nome ?? "").trim().split(/\s+/)[0] || null),
+        notas: [...notasDaConversa(historico, loja.endereco, (c.lead_nome ?? "").trim().split(/\s+/)[0] || null), ...[notaDeCor(historico, estoque)].filter((n): n is string => !!n)],
       }));
       if (!messages) break;
       try {
@@ -57,7 +57,9 @@ export async function simular(
           },
         });
         custo += t.custo;
-        let texto = semFrasesFeitas(semTravessao((t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n")));
+        /* o histórico aqui já tem a mensagem do lead deste turno, igual ao atendimento real */
+        let texto = polir((t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n"), historico, !!t.encaminhado);
+        if (!texto && t.encaminhado) texto = despedidaPadrao(t.encaminhado);
         if (i === 0 && texto) texto = `${loja.aviso_inicial || AVISO_PADRAO(loja.nome)}\n\n${semAvisoRepetido(texto, msg)}`;
         historico.push({ autor: "robo", texto: texto || "[o robô não respondeu]" });
         if (t.encaminhamento) { encaminhamento = { ...t.encaminhamento, visita: visitaReal(t.encaminhamento.visita, historico, loja.endereco) }; break; }

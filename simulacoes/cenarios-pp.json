@@ -177,6 +177,26 @@
     "qual o valor?",
     "tá, e aceita cartão?"
    ]
+  },
+  {
+   "nome": "17. Cliente do Pedro chama pelo nome",
+   "agora": "2026-10-05T14:10:00-03:00",
+   "canal": "Não identificado",
+   "lead_nome": "Sérgio Lima",
+   "mensagens": [
+    "Oi Pedro, tudo bem? Sobre aquele Compass que a gente falou semana passada"
+   ]
+  },
+  {
+   "nome": "18. Troca com troco",
+   "agora": "2026-10-05T11:00:00-03:00",
+   "canal": "WebMotors",
+   "lead_nome": "Marcelo",
+   "mensagens": [
+    "Bom dia. Vocês fazem troca com troco? Tenho uma Hilux 2020 e queria pegar um carro mais barato e ficar com a diferença",
+    "Ela tem uns 80 mil km",
+    "Queria um sedã, tipo o Cruze"
+   ]
   }
  ]
 }

@@ -50,13 +50,41 @@ export const soConsultor = (v: Veiculo) => /^\s*reprovado/i.test(v.laudo_cautela
 
 /* a ficha vai como está (item 2.4 do contrato), menos leilão e laudo: decisão do Kauan em 05/10/2026,
    procedência e estado do carro são conversa do consultor, porque alguns carros têm ressalvas */
+const corDe = (v: Veiculo) => (v.observacoes ?? "").match(/\bcor ([^|;,.]+)/i)?.[1]?.trim() ?? null;
+const semCor = (v: Veiculo) => (v.observacoes ?? "").replace(/\bcor [^|;,.]+[|;,.]?\s*/i, "").trim() || null;
+
+/* Cliente citou cor: o código mostra a cor de cada carro dos modelos que ele citou. Só com a regra no prompt o modelo
+   ainda juntava "dois Cruze pretos" quando um era branco (rodada de 06/10/2026). */
+const CORES = /\b(pret[oa]s?|branc[oa]s?|prata|pratas|cinzas?|vermelh[oa]s?|azu(l|is)|verdes?|amarel[oa]s?|marrom|bege|dourad[oa]s?|vinho|grafite|laranja)\b/i;
+const norm = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+export function notaDeCor(historico: { autor: string; texto: string }[], estoque: Veiculo[]): string | null {
+  const ultima = [...historico].reverse().find((m) => m.autor === "lead")?.texto ?? "";
+  if (!CORES.test(ultima)) return null;
+  const falou = norm(historico.filter((m) => m.autor === "lead").map((m) => m.texto).join(" "));
+  /* modelo = primeira palavra do título depois da marca ("Chevrolet CRUZE LT NB 2012/2013" -> "cruze") */
+  const citados = estoque.filter((v) => !soConsultor(v) && corDe(v)).filter((v) => {
+    const modelo = norm(v.titulo.split(/\s+/)[1] ?? "");
+    return modelo.length >= 2 && new RegExp(`\\b${modelo.replace(/[^a-z0-9-]/g, "")}\\b`).test(falou);
+  });
+  if (!citados.length) return null;
+  /* separa os da cor pedida dos outros: o modelo tendia a repetir a cor da pergunta para todos ("dois Cruze pretos") */
+  const raiz = (c: string) => norm(c).slice(0, 4);
+  const pedida = norm(ultima.match(CORES)![0]);
+  const daCor = citados.filter((v) => raiz(corDe(v)!) === raiz(pedida));
+  const outras = citados.filter((v) => raiz(corDe(v)!) !== raiz(pedida));
+  return `A pessoa perguntou pela cor ${pedida}. Na ficha, ${daCor.length ? `dessa cor só existe: ${daCor.map((v) => `${v.titulo} (${corDe(v)})`).join("; ")}` : "não existe nenhum dessa cor"}.` +
+    (outras.length ? ` De outra cor: ${outras.map((v) => `${v.titulo} (${corDe(v)})`).join("; ")}. Não diga que estes são ${pedida}; se citar algum deles, diga a cor certa.` : "");
+}
+
 export function linhaFicha(v: Veiculo) {
   const campos = [
     `disponível: ${v.disponivel ? "sim" : "não"}`,
     v.preco != null ? `preço anunciado: ${brl(v.preco)}` : null,
     v.km != null ? `km: ${v.km.toLocaleString("pt-BR")}` : null,
     v.unico_dono ? `único dono: ${v.unico_dono}` : null,
-    v.observacoes ? `observações: ${v.observacoes}` : null,
+    /* a cor vira campo próprio: misturada nas observações, o modelo trocava a cor de um carro pela de outro */
+    corDe(v) ? `cor: ${corDe(v)}` : null,
+    semCor(v) ? `observações: ${semCor(v)}` : null,
   ].filter(Boolean);
   return `- [${v.id.slice(0, 8)}] ${v.titulo} | ${campos.join(" | ")}`;
 }
@@ -80,7 +108,7 @@ export function promptSistema(loja: Loja, estoque: Veiculo[]) {
 1. Reconheça o carro e responda a primeira dúvida. Se o contexto trouxer o carro do anúncio, fale dele pelo nome e nunca pergunte "qual carro você viu". Sem carro identificado, pergunte qual chamou a atenção ou o que a pessoa procura.
 2. Preço e troca são o que o cliente desta loja mais pergunta. Preço: responda com o preço anunciado da ficha. Troca: diga que a loja aceita troca e pergunte qual é o carro, o ano e a quilometragem. Nunca diga quanto a loja paga no carro dela: a avaliação é sempre com o consultor, de preferência com o carro na loja.
 3. No meio da conversa, uma pergunta de cada vez e saindo do que a pessoa disse, descubra: se tem carro na troca e como pretende pagar (à vista, financiamento ou cartão). Nunca as duas de uma vez, nunca antes de responder o que a pessoa perguntou.
-4. Convide para ver o carro na loja e mande o endereço por escrito, numa frase: "${loja.endereco || "[endereço da loja]"}". Quem confirma dia e hora é o consultor, então não marque horário.
+4. Convide para ver o carro na loja e mande o endereço por escrito, numa frase: "${loja.endereco || "[endereço da loja]"}". Quem confirma dia e hora é o consultor, então não marque horário: se a pessoa disser quando vem, não responda "te espero" nem "combinado para tal hora"; diga que o consultor confirma o horário com ela.
 5. Depois do convite (ou quando a pessoa não quiser responder alguma pergunta), chame encaminhar_ao_vendedor. Não encaminhe um lead qualificado sem antes ter feito o convite com o endereço, a não ser que a pessoa já tenha dito quando quer vir.
 
 Pergunta sobre detalhe que não está na ficha (opcionais, multimídia, consumo, revisões) não é motivo para encaminhar: diga que o consultor confirma esse ponto, comente o que a ficha tem e siga a conversa.
@@ -115,6 +143,9 @@ A loja fechada não muda o seu trabalho: responda, tire as dúvidas com a ficha 
 - Não negocia preço, não concede desconto, não aprova nem simula crédito ou parcela, não avalia o carro da troca, não fecha venda, não marca horário nem reserva sem o consultor.
 - Não fala de garantia, perícia, laudo, leilão, procedência, sinistro ou estado do carro, nem para dizer que tem nem para dizer que não tem. Se perguntarem: "isso o consultor te confirma", siga a conversa normalmente e anote a pergunta no encaminhamento. Essa pergunta sozinha não é motivo para encaminhar.
 - Não informa nada sobre um carro que não esteja na ficha. Campo que não estiver lá: "isso o consultor te confirma". Nunca arredonde km, nunca invente opcional, cor ou versão.
+- Não diga o que um carro "costuma ter" ou "geralmente vem com" por causa da versão ou do modelo, nem opine sobre consumo, desempenho, manutenção ou qualidade do modelo. O que não está na ficha é sempre "o consultor confirma".
+- Só fale de cor quando a pessoa perguntar ou citar uma cor, e aí use o campo "cor" da ficha de cada carro, conferindo carro por carro. Só junte dois carros na mesma frase se a ficha dos dois tiver a mesma cor.
+- Quando a pessoa pedir uma categoria (SUV, sedã, hatch, picape, utilitário), ofereça só modelos que são claramente dessa categoria. Minivan como a Spin e hatch como o HB20 não são SUV. Se não tiver nenhum na faixa, diga isso e pergunte se ela considera outra categoria.
 - Reproduz a ficha sem mudar o sentido. Se a ficha diz "disponível: não", o carro não está disponível.
 - Não fala de outra loja, de outro endereço nem de outro telefone além dos daqui.
 - Não se passa por pessoa. Se perguntarem, diga que é o atendimento automático da loja e que um consultor assume em seguida.
@@ -156,7 +187,7 @@ export function contextoTurno(p: {
       : "carro não identificado";
   return `<contexto_do_sistema>
 ${NOME_DIA[p.agora.dia]}, ${p.agora.data}, ${p.agora.hhmm} · ${p.horario}
-origem: ${p.canal} · ${carro}${p.nome ? `\nnome no perfil do WhatsApp: ${p.nome} (use o primeiro nome de vez em quando, nunca em toda mensagem; se parecer apelido ou nome de empresa, não use)` : ""}${p.primeiroTurno ? "\nprimeira resposta: o sistema já abre a mensagem com o aviso de atendimento automático; comece direto pelo cumprimento e pela resposta" : ""}
+origem: ${p.canal} · ${carro}${p.nome ? `\nnome no perfil do WhatsApp: ${p.nome} (use o primeiro nome de vez em quando, nunca em toda mensagem; se parecer apelido ou nome de empresa, não use)` : ""}${p.primeiroTurno ? "\nprimeira resposta: o sistema já abre a mensagem com o aviso de atendimento automático; comece direto pelo cumprimento e pela resposta, sem comentar o aviso" : ""}
 ${p.notas?.length ? `\no que já aconteceu nesta conversa:\n${p.notas.map((n) => `- ${n}`).join("\n")}` : ""}
 </contexto_do_sistema>`;
 }

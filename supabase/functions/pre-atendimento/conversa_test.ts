@@ -66,3 +66,54 @@ Deno.test("frase de bastidor não chega ao cliente", () => {
 Deno.test("resto do aviso some", () => {
   assertEquals(semFrasesFeitas("Já aviso antes de começar. Esse Fit o consultor apresenta pessoalmente."), "Esse Fit o consultor apresenta pessoalmente.");
 });
+
+import { polir, semPerguntaRepetida, semPromessaAntesDaHora } from "./conversa.ts";
+Deno.test("abertura feita e 'até já' saem; nome sozinho depois de 'Perfeito' cai junto", () => {
+  assertEquals(semFrasesFeitas("Show, Marcos, já passei seus dados para o consultor. Até já!"), "Marcos, já passei seus dados para o consultor.");
+  assertEquals(semFrasesFeitas("Perfeito, Carla. Um consultor continua com você por aqui em instantes."), "Um consultor continua com você por aqui em instantes.");
+  assertEquals(semFrasesFeitas("A CR-V o consultor apresenta pessoalmente. Quer que eu já encaminhe para ele te passar os detalhes?"), "A CR-V o consultor apresenta pessoalmente.");
+});
+
+Deno.test("promessa de consultor sai quando ninguém foi chamado, fica na despedida", () => {
+  const t = "Em instantes um consultor pode continuar por aqui. Temos sim, um Fusion 2013 por R$ 71.900.";
+  assertEquals(semPromessaAntesDaHora(t, false), "Temos sim, um Fusion 2013 por R$ 71.900.");
+  assertEquals(semPromessaAntesDaHora("Um consultor continua com você por aqui em instantes.", true), "Um consultor continua com você por aqui em instantes.");
+});
+
+Deno.test("pergunta de pagamento sem resposta não volta na mensagem seguinte", () => {
+  const h = [{ autor: "lead", texto: "qual o valor?" }, { autor: "robo", texto: "É R$ 46.900. Você pensa em pagar à vista ou financiar?" }, { autor: "lead", texto: "quantos km ele tem?" }];
+  assertEquals(semPerguntaRepetida("A ficha não traz o km, o consultor confirma. Você chegou a pensar em financiamento ou à vista?", h), "A ficha não traz o km, o consultor confirma.");
+  assertEquals(polir("Tenho sim - por R$ 46.900.", [], false), "Tenho sim, por R$ 46.900.");
+});
+
+Deno.test("'posso te ajudar com mais' sai mesmo no meio da frase, e o 'show' do fim também", () => {
+  assertEquals(semFrasesFeitas("Isso o consultor te confirma. Fora isso, posso te ajudar com mais alguma dúvida sobre o Ka?"), "Isso o consultor te confirma.");
+  assertEquals(semFrasesFeitas("Gol 2012 com 150 mil km, show. Você pensa em financiar?"), "Gol 2012 com 150 mil km. Você pensa em financiar?");
+});
+
+Deno.test("nome composto sozinho depois de abertura cai; 'Combinado' fica, porque é resposta natural a horário", () => {
+  assertEquals(semFrasesFeitas("Perfeito, Ana Paula. Um consultor continua por aqui segunda às 08:00."), "Um consultor continua por aqui segunda às 08:00.");
+  assertEquals(semFrasesFeitas("Combinado, Juliana! Um consultor confirma o horário."), "Combinado, Juliana! Um consultor confirma o horário.");
+});
+
+Deno.test("pedir licença para colocar em contato sai", () => {
+  assertEquals(semFrasesFeitas("O preço desse Fit o consultor passa certinho. Posso te colocar em contato com ele agora?"), "O preço desse Fit o consultor passa certinho.");
+  assertEquals(semFrasesFeitas("Esse Fit o consultor apresenta. Posso te ajudar com outras dúvidas enquanto isso?"), "Esse Fit o consultor apresenta.");
+});
+
+Deno.test("aviso cortado não deixa a frase começando com 'E'", () => {
+  assertEquals(semAvisoRepetido("Oi! Esse é o atendimento automático da Pedro Paulo Automóveis e infelizmente eu não consigo ouvir áudio. Pode escrever?", "[a pessoa mandou um áudio, que você não consegue ouvir]"),
+    "Oi! Infelizmente eu não consigo ouvir áudio. Pode escrever?");
+});
+
+Deno.test("robô comentando o aviso: a frase sai, ou fica só o que vem depois dos dois-pontos", () => {
+  assertEquals(semAvisoRepetido("Boa tarde, Gustavo! Esse aviso aqui é automático, já te explico. Temos o Onix 2015 por R$ 49.900.", "vi o onix"),
+    "Boa tarde, Gustavo! Temos o Onix 2015 por R$ 49.900.");
+  assertEquals(semAvisoRepetido("Boa tarde, Gustavo! Esse aviso é do atendimento automático, mas já te adianto: temos o Onix 2015 por R$ 49.900.", "vi o onix"),
+    "Boa tarde, Gustavo! Temos o Onix 2015 por R$ 49.900.");
+});
+
+Deno.test("opinião sobre o modelo sai", () => {
+  assertEquals(semFrasesFeitas("Consumo certinho quem te passa é o consultor, mas o Onix costuma ser bem econômico no dia a dia. Quer ver de perto?"),
+    "Consumo certinho quem te passa é o consultor. Quer ver de perto?");
+});
