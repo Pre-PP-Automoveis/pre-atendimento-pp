@@ -3,7 +3,7 @@ import { semAvisoRepetido } from "./conversa.ts";
 
 Deno.test("tira a frase em que o robô se anuncia, mantém o cumprimento", () => {
   assertEquals(semAvisoRepetido("Boa noite! Este atendimento é automático. Sim, o Cobalt está disponível.", "o cobalt ainda tá aí?"),
-    "Boa noite! Sim, o Cobalt está disponível.");
+    "Sim, o Cobalt está disponível.");
   assertEquals(semAvisoRepetido("Atendimento automático da Pedro Paulo Automóveis, boa tarde. Sim, o Up está disponível.", "ainda disponível?"),
     "Sim, o Up está disponível.");
 });
@@ -15,7 +15,7 @@ Deno.test("mantém quando o cliente perguntou se é robô", () => {
 
 Deno.test("marcação de áudio não conta como pergunta sobre robô", () => {
   assertEquals(semAvisoRepetido("Oi! Esse é o atendimento automático da Pedro Paulo Automóveis. Não consigo ouvir áudio, pode escrever?", "[a pessoa mandou um áudio, que você não consegue ouvir]"),
-    "Oi! Não consigo ouvir áudio, pode escrever?");
+    "Não consigo ouvir áudio, pode escrever?");
 });
 
 import { semTravessao } from "./conversa.ts";
@@ -49,7 +49,7 @@ Deno.test("frase-padrão sai", () => {
 import { exigirConvite } from "./conversa.ts";
 Deno.test("filtro do aviso tira só o trecho e mantém o resto da frase", () => {
   assertEquals(semAvisoRepetido("Oi! Este atendimento é automático e não consigo ouvir áudio, pode escrever o que procura?", "[a pessoa mandou um áudio, que você não consegue ouvir]"),
-    "Oi! Não consigo ouvir áudio, pode escrever o que procura?");
+    "Não consigo ouvir áudio, pode escrever o que procura?");
 });
 Deno.test("lead qualificado sem convite volta para o robô convidar", () => {
   const e = { motivo: "qualificado", veiculo: "Ka", troca: "não tem", pagamento: "à vista", visita: "não convidado", pendencias: "nenhuma", resumo: "" };
@@ -103,17 +103,31 @@ Deno.test("pedir licença para colocar em contato sai", () => {
 
 Deno.test("aviso cortado não deixa a frase começando com 'E'", () => {
   assertEquals(semAvisoRepetido("Oi! Esse é o atendimento automático da Pedro Paulo Automóveis e infelizmente eu não consigo ouvir áudio. Pode escrever?", "[a pessoa mandou um áudio, que você não consegue ouvir]"),
-    "Oi! Infelizmente eu não consigo ouvir áudio. Pode escrever?");
+    "Infelizmente eu não consigo ouvir áudio. Pode escrever?");
 });
 
 Deno.test("robô comentando o aviso: a frase sai, ou fica só o que vem depois dos dois-pontos", () => {
   assertEquals(semAvisoRepetido("Boa tarde, Gustavo! Esse aviso aqui é automático, já te explico. Temos o Onix 2015 por R$ 49.900.", "vi o onix"),
-    "Boa tarde, Gustavo! Temos o Onix 2015 por R$ 49.900.");
+    "Temos o Onix 2015 por R$ 49.900.");
   assertEquals(semAvisoRepetido("Boa tarde, Gustavo! Esse aviso é do atendimento automático, mas já te adianto: temos o Onix 2015 por R$ 49.900.", "vi o onix"),
-    "Boa tarde, Gustavo! Temos o Onix 2015 por R$ 49.900.");
+    "Temos o Onix 2015 por R$ 49.900.");
 });
 
 Deno.test("opinião sobre o modelo sai", () => {
   assertEquals(semFrasesFeitas("Consumo certinho quem te passa é o consultor, mas o Onix costuma ser bem econômico no dia a dia. Quer ver de perto?"),
     "Consumo certinho quem te passa é o consultor. Quer ver de perto?");
+});
+
+import { abertura } from "./conversa.ts";
+Deno.test("abertura de consultoria com nome, que cumpre o item 8.5 do contrato", () => {
+  const t = abertura({ loja: "Pedro Paulo Automóveis", assistente: "Bia", nomeDoLead: "marcos vinicius", quando: new Date("2026-10-07T10:00:00-03:00") });
+  assertEquals(t.startsWith("Bom dia, Marcos! Sou a Bia, assistente virtual da Pedro Paulo Automóveis. Vou iniciar o seu atendimento e fazer uma triagem"), true);
+  assertEquals(/assistente virtual/.test(t) && /dados ficam só com a loja/.test(t) && /falar direto com um consultor/.test(t), true); // 8.5: automatizado, dados, pessoa
+  assertEquals(abertura({ loja: "PP", nomeDoLead: "AUTO PEÇAS 123", quando: new Date("2026-10-07T20:00:00-03:00") }).startsWith("Boa noite! Sou a assistente virtual da PP."), true);
+});
+
+Deno.test("primeira resposta sem segundo cumprimento nem segunda apresentação", () => {
+  assertEquals(semAvisoRepetido("Boa tarde, Gustavo! Sou a Bia, assistente virtual da loja. O Onix 2015 está por R$ 49.900.", "vi o onix"), "O Onix 2015 está por R$ 49.900.");
+  assertEquals(semAvisoRepetido("Sou a Bia, assistente virtual da loja, e um consultor assume quando você quiser.", "é robô?"),
+    "Sou a Bia, assistente virtual da loja, e um consultor assume quando você quiser.");
 });

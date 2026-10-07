@@ -28,7 +28,11 @@ if loja["ativo"]:
 v = {x["nome"]: x["id"] for x in req("GET", "/pa_vendedores?select=id,nome&admin=eq.false")}
 agora = datetime.datetime.now(datetime.timezone.utc)
 ha = lambda m: (agora - datetime.timedelta(minutes=m)).isoformat()
-AVISO = "Este é o atendimento automático da Pedro Paulo Automóveis. Seus dados são usados só para o atendimento comercial da loja, e se preferir falar com uma pessoa do time é só pedir."
+# mesma abertura do robô (conversa.ts, abertura): cumprimento pela hora de São Paulo, nome do cliente e a Bia se apresentando
+hora = (agora - datetime.timedelta(hours=3)).hour
+SAUDACAO = "Bom dia" if hora < 12 else "Boa tarde" if hora < 18 else "Boa noite"
+ABRE = lambda nome: (f"{SAUDACAO}, {nome}! Sou a Bia, assistente virtual da Pedro Paulo Automóveis. Vou iniciar o seu atendimento e fazer uma triagem rápida "
+                     "para encontrar o carro ideal para você. Seus dados ficam só com a loja, e se preferir falar direto com um consultor é só pedir.")
 exemplos = [
   # 1. lead pronto, na vez do Rayan, com o relógio do repasse correndo
   ({"lead_wa": FONES[0], "lead_nome": "Juliana Prado (exemplo)", "origem": "Mercado Livre", "estado": "encaminhada", "vendedor_id": v["Rayan"],
@@ -38,7 +42,7 @@ exemplos = [
                "pagamento": "financiamento", "visita": "convidado, sem resposta", "pendencias": "simular o financiamento e avaliar o Ka",
                "resumo": "Quer o I30, tem um Ka 2014 financiado na troca e quer financiar o restante."}},
    [("lead", "Pega na troca veículo tb?"),
-    ("robo", AVISO + "\n\nOi, Juliana! Aceitamos troca sim. Qual é o seu carro, o ano e quantos km ele tem?"),
+    ("robo", ABRE("Juliana") + "\n\nAceitamos troca sim. Qual é o seu carro, o ano e quantos km ele tem?"),
     ("lead", "um ka 2014 1.6 com 140 mil, ainda tá financiado"),
     ("robo", "A loja quita o financiamento do seu Ka e o que sobrar do valor entra na compra do I30, essa conta o consultor fecha com você. Quer passar na loja para ver o I30 de perto? Rua Juquiá, 275, Paraíso, Santo André, SP, CEP 09190-675."),
     ("lead", "financiamento"),
@@ -51,13 +55,13 @@ exemplos = [
                "visita": "não convidado", "pendencias": "retomar a conversa da semana passada sobre o Compass",
                "resumo": "Cliente do Pedro, chamou ele pelo nome para continuar a conversa sobre um Compass."}},
    [("lead", "Oi Pedro, tudo bem? Sobre aquele Compass que a gente falou semana passada"),
-    ("robo", AVISO + "\n\nOi, Sérgio! Vou te deixar direto com o Pedro, que continua essa conversa com você aqui mesmo daqui a pouco."),
+    ("robo", ABRE("Sérgio") + "\n\nVou te deixar direto com o Pedro, que continua essa conversa com você aqui mesmo daqui a pouco."),
     ("sistema", "encaminhado para Pedro (pediu_pessoa), a pedido do cliente")]),
   # 3. ainda com o robô: dá para mostrar o "Puxar para mim"
   ({"lead_wa": FONES[2], "lead_nome": "Gustavo Ramos (exemplo)", "origem": "WebMotors", "estado": "robo", "iniciada_em": ha(3), "respondido_robo_em": ha(3), "ultima_msg_em": ha(1),
     "origem_detalhe": {"veiculo_texto": "Chevrolet Onix 1.4 LT 2014/2015"}},
    [("lead", "boa tarde, vi o onix de vocês"),
-    ("robo", AVISO + "\n\nBoa tarde, Gustavo! O Onix 1.4 LT 2014/2015 está disponível, por R$ 49.900, com 118.423 km. É esse que você viu?"),
+    ("robo", ABRE("Gustavo") + "\n\nO Onix 1.4 LT 2014/2015 está disponível, por R$ 49.900, com 118.423 km. É esse que você viu?"),
     ("lead", "esse mesmo. tem multimídia?"),
     ("robo", "Esse detalhe o consultor confirma certinho com você. Quer passar na loja para ver o Onix de perto? O endereço é Rua Juquiá, 275, Paraíso, Santo André, SP, CEP 09190-675.")]),
 ]

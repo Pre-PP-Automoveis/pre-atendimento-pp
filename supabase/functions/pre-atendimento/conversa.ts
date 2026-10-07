@@ -114,15 +114,31 @@ export async function rodarTurno(p: {
   return t;
 }
 
-/* aviso do item 8.5 do contrato, anexado em texto fixo à primeira resposta (pa_lojas.aviso_inicial manda, se existir) */
-export const AVISO_PADRAO = (nome: string) =>
-  `Este é o atendimento automático da ${nome}. Seus dados são usados só para o atendimento comercial da loja, e se preferir falar com uma pessoa do time é só pedir.`;
+/* Abertura da primeira resposta, em texto fixo (pa_lojas.aviso_inicial manda, se existir). Tom de consultoria, com o nome da
+   assistente, e cumpre o item 8.5 do contrato: diz que é assistente virtual (sistema automatizado), para que servem os
+   dados e que dá para pedir um consultor. Cumprimento pela hora de São Paulo e pelo primeiro nome do perfil, se parecer nome. */
+export function abertura(p: { loja: string; assistente?: string | null; nomeDoLead?: string | null; quando?: Date }) {
+  const hora = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", hour: "2-digit", hourCycle: "h23" }).format(p.quando ?? new Date()));
+  const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
+  const primeiro = (p.nomeDoLead ?? "").trim().split(/\s+/)[0] ?? "";
+  /* perfil com número ou com cara de empresa ("AUTO PEÇAS 123", "Loja do Zé") não vira nome de gente */
+  const empresa = /\d|\b(ltda|me|eireli|auto|autos|pe[cç]as|ve[ií]culos|loja|motors?|multimarcas|oficial|store|com[eé]rcio|servi[cç]os|distribuidora)\b/i.test(p.nomeDoLead ?? "");
+  const nome = !empresa && /^[A-Za-zÀ-ÿ]{2,15}$/.test(primeiro) ? primeiro[0].toUpperCase() + primeiro.slice(1).toLowerCase() : "";
+  const quem = p.assistente ? `Sou a ${p.assistente}, assistente virtual da ${p.loja}` : `Sou a assistente virtual da ${p.loja}`;
+  return `${saudacao}${nome ? `, ${nome}` : ""}! ${quem}. Vou iniciar o seu atendimento e fazer uma triagem rápida para encontrar o carro ideal para você. ` +
+    "Seus dados ficam só com a loja, e se preferir falar direto com um consultor é só pedir.";
+}
 
-/* O aviso do item 8.5 já abre a primeira mensagem em texto fixo. Se o modelo também se anunciar, a frase sai:
-   o cliente leria "atendimento automático" duas vezes. Fica quando o próprio cliente perguntou se é robô. */
+/* A abertura já cumprimenta e apresenta a assistente. Se o modelo cumprimentar ou se apresentar de novo, sai:
+   o cliente leria "boa tarde" e "assistente virtual" duas vezes. A apresentação fica quando o cliente perguntou se é robô. */
 export function semAvisoRepetido(texto: string, mensagemDoLead: string) {
+  /* cumprimento solto no começo ("Boa tarde, Gustavo!", "Oi!") sai sempre: a abertura já cumprimentou */
+  const semOi = texto.replace(/^\s*(oi|ol[aá]|bom dia|boa tarde|boa noite)\b[^.!?\n]{0,30}[!.]\s*/i, "").trim();
+  texto = semOi.length >= 12 ? semOi[0].toUpperCase() + semOi.slice(1) : texto;
   /* marcações do sistema ("[a pessoa mandou um áudio…]") não contam como pergunta do cliente */
-  if (/rob[oô]|autom[aá]tic|pessoa|humano|atendente/i.test(mensagemDoLead.replace(/\[[^\]]*\]/g, ""))) return texto;
+  if (/rob[oô]|autom[aá]tic|virtual|pessoa|humano|atendente|quem (é|e) voc/i.test(mensagemDoLead.replace(/\[[^\]]*\]/g, ""))) return texto;
+  /* "Sou a Bia, assistente virtual da loja" de novo: a frase sai */
+  texto = texto.split(/(?<=[.!?])\s+/).filter((f) => !/assistente virtual|^(eu )?sou (a|o) [A-ZÀ-Ú]\p{L}+[,.!]|^aqui (é|e) (a|o) [A-ZÀ-Ú]\p{L}+[,.!]|^me chamo /u.test(f)).join(" ") || texto;
   /* tira só o trecho em que ele se anuncia; a frase some inteira apenas se não sobrar conteúdo */
   const trecho = /(,\s*)?((este|esse|aqui)\s+)?(é\s+)?(?<![\p{L}])(o\s+)?atendimento\s+(é\s+)?autom[aá]tico(\s+da\s+(?:(?!\s+e\s+)[^,.!?])*)?(\s+e\s+|\s*,\s*|\s*[.!]\s*)?/iu;
   const frases = texto.split(/(?<=[.!?])\s+/).map((f) => {
