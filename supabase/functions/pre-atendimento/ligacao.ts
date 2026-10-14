@@ -7,14 +7,16 @@ import { GRAPH, graph } from "./whatsapp.ts";
 const MODELO_AVISO = "novo_lead_pre_atendimento";
 const TEXTO_AVISO = "Lead para você: {{1}}, {{2}}. Carro: {{3}}. Origem: {{4}}. {{5}} Responda pelo WhatsApp da loja.";
 
-export type PedidoLigacao = { convite?: string; code?: string; waba_id?: string; phone_number_id?: string };
+/* app: "proprio" quando a conexão vem da página do app da própria loja (painel dela); sem isso, é o app da Moza */
+export type PedidoLigacao = { convite?: string; code?: string; waba_id?: string; phone_number_id?: string; app?: string };
 
 export async function ligarLoja(admin: SupabaseClient, p: PedidoLigacao) {
   if (!p.convite || !p.code || !p.waba_id) return { status: 400, corpo: { erro: "faltou convite, código ou conta do WhatsApp" } };
   const { data: loja } = await admin.from("pa_lojas").select("*").eq("convite_onboarding", p.convite).maybeSingle();
   if (!loja) return { status: 404, corpo: { erro: "convite inválido ou já usado" } };
 
-  const appId = Deno.env.get("META_APP_ID"), segredo = Deno.env.get("WHATSAPP_APP_SECRET");
+  const proprio = p.app === "proprio";
+  const appId = Deno.env.get(proprio ? "PP_META_APP_ID" : "META_APP_ID"), segredo = Deno.env.get(proprio ? "PP_WHATSAPP_APP_SECRET" : "WHATSAPP_APP_SECRET");
   if (!appId || !segredo) return { status: 500, corpo: { erro: "app da Meta não configurado no servidor" } };
 
   /* 1. o código do navegador vira a credencial de integração da loja (só o servidor conhece o segredo do app) */
@@ -35,7 +37,7 @@ export async function ligarLoja(admin: SupabaseClient, p: PedidoLigacao) {
   await admin.from("pa_lojas").update({ waba_id: p.waba_id, phone_number_id: phoneId, numero_exibido: exibido, ligada_em: new Date().toISOString() }).eq("id", loja.id);
 
   const pendencias: string[] = [];
-  /* 3. o app da Moza passa a receber os webhooks dessa conta */
+  /* 3. o app que fez a conexão passa a receber os webhooks dessa conta */
   await graph(`${p.waba_id}/subscribed_apps`, token, "POST").catch((e) => pendencias.push(`assinatura do webhook: ${e.message}`));
 
   /* 4. coexistência: contatos e histórico precisam ser pedidos em até 24 horas, senão a ligação cai */

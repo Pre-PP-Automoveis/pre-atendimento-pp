@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conectar WhatsApp PP37</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#1F2022">
+<link rel="icon" href="data:,">
+<style>
+  /* cores da PP37, as mesmas do painel: grafite, cinza e o vermelho do logo */
+  :root { --chao:#1F2022; --folha:#2A2C2F; --tinta:#F2F2F3; --apoio:#9B9C9E; --fio:#3D3F43; --marca:#B81111; --acao:#FF5A5F; --ok:#8FD3A8;
+          --f: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color-scheme: dark; }
+  * { scrollbar-color: var(--marca) var(--chao); }
+  html, body { background: var(--chao); color: var(--tinta); }
+  body { margin: 0; font: 400 17px/1.6 var(--f); border-top: 4px solid var(--marca); padding-inline: 16px; padding-block: 28px 56px; }
+  .cx { max-width: 560px; margin: 0 auto; display: grid; gap: 16px; }
+  .cx > * { min-width: 0; margin: 0; }
+  img { width: 150px; height: auto; }
+  h1 { font: 700 clamp(26px, 6vw, 34px)/1.15 var(--f); text-wrap: balance; }
+  .apoio { color: var(--apoio); }
+  ol { padding-left: 22px; display: grid; gap: 8px; }
+  .botao { min-height: 52px; padding: 14px 20px; border: 0; border-radius: 8px; background: var(--marca); color: #fff; font: 600 17px/1.2 var(--f); cursor: pointer; width: 100%; }
+  .botao[disabled] { opacity: .55; cursor: default; }
+  .botao:focus-visible { outline: 2px solid var(--acao); outline-offset: 3px; }
+  .estado { padding: 14px 16px; background: var(--folha); border-radius: 8px; border-left: 4px solid var(--fio); }
+  .estado--ok { border-left-color: var(--ok); }
+  .estado--erro { border-left-color: var(--acao); }
+  .estado p { margin: 0; }
+  .rodape { color: var(--apoio); font-size: 14px; border-top: 1px solid var(--fio); padding-top: 16px; }
+  .rodape a { color: var(--tinta); text-decoration-color: var(--marca); }
+</style>
+</head>
+<body>
+<main class="cx">
+  <img src="/logo-pp.png" alt="PP37 Pedro Paulo Automóveis" width="150" height="48">
+  <h1>Conectar o WhatsApp da loja</h1>
+  <p>Este link liga o número que a loja já usa no WhatsApp Business ao pré-atendimento da Bia.</p>
+  <p class="apoio">O número continua no aplicativo, com as conversas e os contatos. O time segue atendendo por ele normalmente.</p>
+  <ol>
+    <li>Tenha em mãos o celular com o WhatsApp Business da loja, atualizado.</li>
+    <li>Toque no botão abaixo e entre com o Facebook de quem administra a empresa na Meta.</li>
+    <li>Quando perguntar, escolha conectar o WhatsApp Business que a loja já usa e siga até o QR code.</li>
+    <li>No celular da loja, abra o aviso que o WhatsApp Business mostrar e leia o QR code. Aceite compartilhar o histórico.</li>
+  </ol>
+  <button class="botao" id="conectar" type="button" disabled>Carregando</button>
+  <div id="estado" class="estado" hidden></div>
+  <p class="rodape">Dados tratados conforme a <a href="https://www.mozabr.com.br/privacidade" target="_blank" rel="noopener">Política de Privacidade</a>.</p>
+</main>
+
+<script>
+/* App próprio da PP na Meta (conta empresarial PP GARAGE 37). Por ser da própria empresa, não depende da análise da Meta.
+   Os dois números saem do painel do app: ID do app e ID da configuração do Login do Facebook para Empresas. */
+var META_APP_ID = "DEFINIR";
+var META_CONFIG_ID = "DEFINIR";
+var FUNCAO = "https://qdzuwnqejtjbtcysteip.supabase.co/functions/v1/pre-atendimento?ligar";
+
+var botao = document.getElementById("conectar");
+var caixa = document.getElementById("estado");
+var convite = new URLSearchParams(location.search).get("convite");
+var sessao = {}, codigo = null;
+
+function mostrar(tipo, texto) {
+  caixa.hidden = false;
+  caixa.className = "estado" + (tipo ? " estado--" + tipo : "");
+  caixa.innerHTML = "";
+  var p = document.createElement("p"); p.textContent = texto; caixa.appendChild(p);
+}
+
+var pronto = (META_APP_ID + META_CONFIG_ID).indexOf("DEFINIR") < 0;
+if (!convite) mostrar("erro", "Este link está incompleto. Peça o link de conexão da loja.");
+else if (!pronto) { mostrar("", "A conexão ainda não foi aberta."); botao.textContent = "Em preparação"; }
+
+window.addEventListener("message", function (ev) {
+  try { if (!/(^|\.)facebook\.com$/.test(new URL(ev.origin).hostname)) return; } catch (e) { return; }
+  try {
+    var d = JSON.parse(ev.data);
+    if (d.type !== "WA_EMBEDDED_SIGNUP") return;
+    if (d.event === "CANCEL") { mostrar("erro", "A conexão foi interrompida antes do fim. Pode tentar de novo."); botao.disabled = false; return; }
+    if (d.event === "ERROR") { mostrar("erro", "A Meta devolveu um erro no cadastro. Tente de novo."); botao.disabled = false; return; }
+    sessao = d.data || {};
+    enviar();
+  } catch (e) { /* mensagens que não são do cadastro */ }
+});
+
+function enviar() {
+  if (!codigo || !sessao.waba_id) return; /* espera as duas metades: o código do login e a conta do cadastro */
+  mostrar("", "Conectando o número. Isso leva alguns segundos.");
+  fetch(FUNCAO, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ app: "proprio", convite: convite, code: codigo, waba_id: sessao.waba_id, phone_number_id: sessao.phone_number_id })
+  }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (res) {
+      if (res.ok && res.j.ok) {
+        mostrar("ok", "Número conectado." + (res.j.numero ? " O " + res.j.numero + " já está ligado." : "") + " A Bia começa depois do teste com o time. Pode fechar esta página.");
+        botao.textContent = "Conectado";
+      } else {
+        mostrar("erro", "Não deu para concluir: " + (res.j.erro || "erro desconhecido") + (res.j.detalhe ? " (" + res.j.detalhe + ")" : "") + ". Não tente de novo antes de conferir.");
+        botao.disabled = false;
+      }
+    })
+    .catch(function () { mostrar("erro", "Sem conexão com o servidor. Confira a internet e tente de novo."); botao.disabled = false; });
+}
+
+window.fbAsyncInit = function () {
+  if (!pronto) return;
+  FB.init({ appId: META_APP_ID, autoLogAppEvents: true, xfbml: false, version: "v25.0" });
+  if (convite) { botao.disabled = false; botao.textContent = "Conectar com o Facebook"; }
+};
+
+botao.addEventListener("click", function () {
+  botao.disabled = true;
+  mostrar("", "Siga as telas que abriram. Se nada abriu, libere as janelas pop-up deste site.");
+  FB.login(function (resp) {
+    if (resp.authResponse && resp.authResponse.code) { codigo = resp.authResponse.code; enviar(); }
+    else if (!sessao.waba_id) { mostrar("erro", "O login não foi concluído. Pode tentar de novo."); botao.disabled = false; }
+  }, {
+    config_id: META_CONFIG_ID, response_type: "code", override_default_response_type: true,
+    /* coexistência: conecta o WhatsApp Business que a loja já usa, sem tirar o número do aplicativo */
+    extras: { setup: {}, featureType: "whatsapp_business_app_onboarding", sessionInfoVersion: "3" }
+  });
+});
+</script>
+<script async defer crossorigin="anonymous" src="https://connect.facebook.net/pt_BR/sdk.js"></script>
+</body>
+</html>

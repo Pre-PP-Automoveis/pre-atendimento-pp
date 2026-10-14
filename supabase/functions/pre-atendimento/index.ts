@@ -22,11 +22,15 @@ const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE
 /* criado na primeira conversa: sem a chave gravada, o cron e a verificação da Meta continuam de pé */
 let _anthropic: Anthropic | null = null;
 const anthropic = () => (_anthropic ??= new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY") }));
-const APP_SECRET = Deno.env.get("WHATSAPP_APP_SECRET") ?? "";
+/* dois apps podem mandar aviso para cá: o da Moza (Tech Provider, em análise na Meta) e o app próprio da loja, criado na
+   conta empresarial dela, que não precisa de análise porque só mexe no número da própria empresa (14/10/2026) */
+const APP_SECRETS = [Deno.env.get("WHATSAPP_APP_SECRET"), Deno.env.get("PP_WHATSAPP_APP_SECRET")].filter((s): s is string => !!s);
 const VERIFY_TOKEN = Deno.env.get("WHATSAPP_VERIFY_TOKEN") ?? "";
 /* a página do cadastro mora no site da Moza e chama esta função pelo navegador */
 /* o site responde em www (Vercel), mas o endereço sem www redireciona para lá: aceita os dois */
-const ORIGENS_CADASTRO = ["https://www.mozabr.com.br", "https://mozabr.com.br"];
+const ORIGENS_CADASTRO = ["https://www.mozabr.com.br", "https://mozabr.com.br",
+  /* a página de conexão do app próprio da loja mora no painel dela */
+  ...(Deno.env.get("PAINEL_ORIGENS") ?? "").split(",").map((o) => o.trim().replace(/\/$/, "")).filter(Boolean)];
 const corsCadastro = (origem: string | null) => ({
   "Access-Control-Allow-Origin": origem && ORIGENS_CADASTRO.includes(origem) ? origem : ORIGENS_CADASTRO[0],
   "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "content-type", "Vary": "Origin",
@@ -117,7 +121,8 @@ Deno.serve(async (req) => {
     const tem = (n: string) => !!Deno.env.get(n);
     return new Response(JSON.stringify({
       anthropic: claude,
-      segredos: { ANTHROPIC_API_KEY: tem("ANTHROPIC_API_KEY"), META_APP_ID: tem("META_APP_ID"), WHATSAPP_APP_SECRET: tem("WHATSAPP_APP_SECRET"), WHATSAPP_VERIFY_TOKEN: tem("WHATSAPP_VERIFY_TOKEN") },
+      segredos: { ANTHROPIC_API_KEY: tem("ANTHROPIC_API_KEY"), META_APP_ID: tem("META_APP_ID"), WHATSAPP_APP_SECRET: tem("WHATSAPP_APP_SECRET"), WHATSAPP_VERIFY_TOKEN: tem("WHATSAPP_VERIFY_TOKEN"),
+        PP_META_APP_ID: tem("PP_META_APP_ID"), PP_WHATSAPP_APP_SECRET: tem("PP_WHATSAPP_APP_SECRET") },
     }), { headers: { "Content-Type": "application/json" } });
   }
 
@@ -151,7 +156,9 @@ Deno.serve(async (req) => {
   }
 
   const corpo = await req.text();
-  if (!(await assinaturaValida(corpo, req.headers.get("x-hub-signature-256"), APP_SECRET))) {
+  const assinatura = req.headers.get("x-hub-signature-256");
+  const valida = (await Promise.all(APP_SECRETS.map((s) => assinaturaValida(corpo, assinatura, s)))).some(Boolean);
+  if (!valida) {
     return new Response("assinatura inválida", { status: 401 });
   }
   /* a Meta reenvia o que não recebe 200 rápido: responde já e trabalha em segundo plano */
