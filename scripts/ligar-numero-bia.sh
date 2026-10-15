@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Liga o número próprio da Bia (cadastrado no app PP37 Atendimento, na conta empresarial da PP) ao pré-atendimento.
 # Desde 15/10/2026 é o (11) 96606-3690, exclusivo da Bia e do tráfego; o time atende por outro número da loja.
-#
-# sem o cadastro incorporado, que a Meta só libera para provedor aprovado.
+# Não usa o cadastro incorporado, que a Meta só libera para provedor aprovado.
 #   scripts/ligar-numero-bia.sh 11966063690
 # Pede, sem mostrar na tela: o token permanente do usuário do sistema da PP e o PIN de 6 dígitos do número.
 # Faz: acha o número na conta, ativa na API (register) se preciso, assina o app nos avisos da conta e grava no banco.
