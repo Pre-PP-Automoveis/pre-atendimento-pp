@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Liga o número próprio da Bia (cadastrado no app PP37 Atendimento, na conta empresarial da PP) ao pré-atendimento.
-# Desde 15/10/2026 é o (11) 96606-3690, exclusivo da Bia e do tráfego; o time atende por outro número da loja.
+# É um chip novo, só da Bia, que vai nos portais e nos anúncios (Kauan, 15/10/2026). Os números do time, como o
+# (11) 96606-3690, ficam no WhatsApp Business e nunca vão para a API: isso tiraria o número do aplicativo.
 # Não usa o cadastro incorporado, que a Meta só libera para provedor aprovado.
-#   scripts/ligar-numero-bia.sh 11966063690
+#   scripts/ligar-numero-bia.sh 11912345678
 # Pede, sem mostrar na tela: o token permanente do usuário do sistema da PP e o PIN de 6 dígitos do número.
 # Faz: acha o número na conta, ativa na API (register) se preciso, assina o app nos avisos da conta e grava no banco.
 # A loja continua desligada (ativo = false) até o teste com o time.
@@ -37,6 +38,7 @@ for conta in graph(NEGOCIO + "/owned_whatsapp_business_accounts?fields=id,name")
             achado = (conta, n)
 if not achado: raise SystemExit("Não achei o número %s nas contas de WhatsApp da Pp Garage 37. Ele foi cadastrado no app PP37 Atendimento?" % digitos)
 conta, n = achado
+if digitos.endswith("966063690"): raise SystemExit("Esse é o número do time (WhatsApp Business). A Bia usa o chip novo.")
 print("Conta %s, número %s (%s), status %s, plataforma %s" % (conta["id"], n["display_phone_number"], n.get("verified_name"), n.get("status"), n.get("platform_type")))
 if n.get("platform_type") != "CLOUD_API" or n.get("status") not in ("CONNECTED",):
     if not re.fullmatch(r"\d{6}", PIN): raise SystemExit("O PIN precisa ter 6 dígitos.")
