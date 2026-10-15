@@ -2,7 +2,7 @@
 // O encaminhamento é de mentira, mas segue a regra real do horário: loja aberta avisa, loja fechada vai para a fila.
 // Serve para calibrar o robô antes de ligar a loja e depois de cada ajuste de prompt.
 import type Anthropic from "npm:@anthropic-ai/sdk";
-import { abertura, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
+import { abertura, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
 import { pessoaPedida } from "./rodizio.ts";
 import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 
@@ -51,9 +51,10 @@ export async function simular(
             /* mesma regra do real: cliente que pede alguém do time pelo nome vai para essa pessoa */
             const equipe = ((loja.equipe ?? []) as string[]).map((nome, ordem) => ({ id: nome, nome, ativo: true, ordem, ultimo_lead_em: null }));
             const pedida = pessoaPedida(equipe, e.consultor)?.nome ?? null;
+            const onde = ondeContinua(loja.numero_atendimento);
             return horario.aberta
-              ? { ok: true, vendedor: pedida ?? "consultor da vez", nomeado: !!pedida }
-              : { ok: true, vendedor: pedida, nomeado: !!pedida, fila: true, abre: horario.abre };
+              ? { ok: true, vendedor: pedida ?? "consultor da vez", nomeado: !!pedida, onde }
+              : { ok: true, vendedor: pedida, nomeado: !!pedida, fila: true, abre: horario.abre, onde };
           },
         });
         custo += t.custo;

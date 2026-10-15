@@ -12,7 +12,7 @@ export const PRECOS: Record<string, { in: number; out: number }> = {
 /* a única ação que o robô toma no mundo */
 export const ENCAMINHAR: Anthropic.Tool = {
   name: "encaminhar_ao_vendedor",
-  description: "Passa o atendimento ao time de vendas: o consultor da vez recebe o resumo e continua a conversa neste mesmo número. Depois disso você não responde mais este lead: escreva só a mensagem de despedida.",
+  description: "Passa o atendimento ao time de vendas: o consultor da vez recebe o resumo e continua a conversa com a pessoa. Depois disso você não responde mais este lead: escreva só a mensagem de despedida.",
   strict: true,
   input_schema: {
     type: "object",
@@ -32,7 +32,12 @@ export const ENCAMINHAR: Anthropic.Tool = {
 };
 
 export type Encaminhamento = { motivo: string; consultor?: string; veiculo: string; troca: string; pagamento: string; visita: string; pendencias: string; resumo: string };
-export type Resultado = { ok: boolean; vendedor: string | null; nomeado?: boolean; fila?: boolean; abre?: string | null; erro?: string };
+export type Resultado = { ok: boolean; vendedor: string | null; nomeado?: boolean; fila?: boolean; abre?: string | null; erro?: string;
+  onde?: string /* por onde o consultor continua: "aqui mesmo, neste número" ou "pelo WhatsApp da loja, (11) ..." */ };
+
+/* com o número da Bia separado do número do time, o consultor chama o cliente pelo WhatsApp da loja */
+export const ondeContinua = (numeroAtendimento?: string | null) =>
+  numeroAtendimento ? `pelo WhatsApp da loja, ${numeroAtendimento}` : "aqui mesmo, neste número";
 
 /* lead vira user, robô vira assistant; mensagens seguidas do mesmo lado viram um turno só.
    O contexto do momento (hora, origem, carro) vai junto da última mensagem do lead. */
@@ -53,12 +58,12 @@ export function montarMensagens(historico: { autor: string; texto: string }[], c
 
 const resultadoParaModelo = (r: Resultado) =>
   r.nomeado && r.vendedor
-    ? `${r.vendedor} recebeu o resumo e continua a conversa aqui mesmo, neste número, ${r.fila ? `quando a loja abrir, ${r.abre ?? "no próximo horário de funcionamento"}` : "em instantes"}. Escreva só a despedida, dizendo que é ${r.vendedor} quem continua.`
+    ? `${r.vendedor} recebeu o resumo e continua a conversa ${r.onde ?? ondeContinua()}, ${r.fila ? `quando a loja abrir, ${r.abre ?? "no próximo horário de funcionamento"}` : "em instantes"}. Escreva só a despedida, dizendo que é ${r.vendedor} quem continua.`
     : r.fila
-    ? `A loja está fechada. O atendimento ficou anotado e um consultor continua a conversa aqui mesmo, neste número, quando a loja abrir, ${r.abre ?? "no próximo horário de funcionamento"}. Diga isso ao lead e despeça-se.`
+    ? `A loja está fechada. O atendimento ficou anotado e um consultor continua a conversa ${r.onde ?? ondeContinua()} quando a loja abrir, ${r.abre ?? "no próximo horário de funcionamento"}. Diga isso ao lead e despeça-se.`
     : r.ok
-      ? "O consultor da vez recebeu o resumo e continua a conversa aqui mesmo, neste número. Escreva só a despedida, sem citar nome."
-      : `Não foi possível avisar o consultor da vez agora (${r.erro}). Diga que um consultor continua a conversa aqui mesmo em instantes e despeça-se.`;
+      ? `O consultor da vez recebeu o resumo e continua a conversa ${r.onde ?? ondeContinua()}. Escreva só a despedida, sem citar nome, dizendo por onde ele continua.`
+      : `Não foi possível avisar o consultor da vez agora (${r.erro}). Diga que um consultor continua a conversa ${r.onde ?? ondeContinua()} em instantes e despeça-se.`;
 
 export type Turno = {
   textos: string[]; custo: number;
@@ -270,6 +275,6 @@ export const polir = (texto: string, historico: Msg[], encaminhado: boolean) =>
 export const despedidaPadrao = (r: Resultado) => {
   const quem = r.nomeado && r.vendedor ? r.vendedor : "Um consultor";
   return r.fila
-    ? `Anotei tudo. ${quem} continua a conversa aqui mesmo assim que a loja abrir${r.abre ? `, ${r.abre}` : ""}.`
-    : `Anotei tudo. ${quem} continua a conversa aqui mesmo em instantes.`;
+    ? `Anotei tudo. ${quem} continua a conversa com você ${r.onde ?? ondeContinua()}, assim que a loja abrir${r.abre ? `, ${r.abre}` : ""}.`
+    : `Anotei tudo. ${quem} continua a conversa com você ${r.onde ?? ondeContinua()}, em instantes.`;
 };

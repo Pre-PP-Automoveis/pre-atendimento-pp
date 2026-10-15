@@ -140,3 +140,11 @@ Deno.test("robô e automático só aparecem quando o cliente pergunta, e aí a r
   const honesta = "Eu faço a triagem inicial de forma automática. Se preferir, passo agora para um consultor.";
   assertEquals(semMencaoDeRobo(honesta, h("vc é robô?")), honesta);
 });
+
+import { despedidaPadrao, ondeContinua } from "./conversa.ts";
+Deno.test("com número da Bia separado, a despedida manda o cliente esperar o WhatsApp da loja", () => {
+  const onde = ondeContinua("(11) 96606-3690");
+  assertEquals(onde, "pelo WhatsApp da loja, (11) 96606-3690");
+  assertEquals(despedidaPadrao({ ok: true, vendedor: null, onde }), "Anotei tudo. Um consultor continua a conversa com você pelo WhatsApp da loja, (11) 96606-3690, em instantes.");
+  assertEquals(despedidaPadrao({ ok: true, vendedor: null }), "Anotei tudo. Um consultor continua a conversa com você aqui mesmo, neste número, em instantes.");
+});

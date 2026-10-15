@@ -185,7 +185,9 @@ function cardVez(l, mostrarConsultor) {
     '<div class="linha1"><span class="nome">' + esc(l.nome) + '</span><span class="tempo ' + s.classe + '">' + esc(s.texto) + "</span></div>" +
     '<div class="carro">' + esc(l.carro) + (mostrarConsultor && l.consultor ? " · com " + esc(l.consultor) : "") + " · chegou às " + hora(l.chegou_em) + "</div>" +
     detalhes(l) +
-    '<div class="acoes"><a class="abrir" href="' + esc(l.whatsapp_link) + '" target="_blank" rel="noopener">Abrir conversa</a><span class="fone">' + esc(l.telefone) + "</span></div>" +
+    '<div class="acoes"><a class="abrir" href="' + esc(l.whatsapp_link) + '" target="_blank" rel="noopener">' + (dados.numero_atendimento ? "Chamar no WhatsApp da loja" : "Abrir conversa") + '</a><span class="fone">' + esc(l.telefone) + "</span></div>" +
+    /* com o número da Bia separado, o sistema não vê a resposta do consultor: ele marca aqui */
+    (dados.numero_atendimento && (l.consultor_id === dados.eu || gerente()) ? '<div class="acoes"><button class="btn" type="button" data-acao="atendi" data-id="' + l.id + '" data-nome="' + esc(l.nome) + '">Já chamei o cliente</button></div>' : "") +
     (gerente() ? '<div class="acoes">' + acoesGerente(l) + "</div>" : "") + "</article>";
 }
 
@@ -286,6 +288,7 @@ function desenhar() {
   var html = "";
   if (dados.quem === "consultor") {
     document.getElementById("titulo").textContent = "Olá, " + dados.nome.split(" ")[0];
+    if (dados.numero_atendimento && dados.sua_vez.length) html += '<p class="nota" style="margin:0">Chame o cliente pelo WhatsApp da loja, ' + esc(dados.numero_atendimento) + ', e depois toque em "Já chamei o cliente".</p>';
     html += bloco("Sua vez agora", dados.sua_vez, function (l) { return cardVez(l, false); }, "Nenhum lead esperando por você. Quando chegar, ele aparece aqui.");
     html += recolhido("Você atendeu", dados.atendidos, function (l) { return mini(l, "respondeu " + dia(l.atendido_em) + " às " + hora(l.atendido_em)); });
     html += recolhido("Passaram para outra pessoa", dados.passaram, function (l) { return mini(l, l.consultor ? "agora com " + esc(l.consultor) : ""); });
@@ -409,7 +412,9 @@ conteudo.addEventListener("click", function (ev) {
   var b = ev.target.closest("button[data-acao]");
   if (!b || ocupado) return;
   var nome = b.getAttribute("data-nome");
-  if (b.dataset.acao === "ver") {
+  if (b.dataset.acao === "atendi") {
+    agir({ acao: "atendi", conversa_id: b.dataset.id });
+  } else if (b.dataset.acao === "ver") {
     verConversa(b.dataset.id, nome);
   } else if (b.dataset.acao === "passar") {
     agir({ acao: "passar", conversa_id: b.dataset.id, para: b.dataset.para });

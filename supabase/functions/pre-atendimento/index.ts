@@ -11,7 +11,7 @@ import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHo
 import { foneLegivel, passouDoRobo, pessoaPedida, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
-import { abertura, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { abertura, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 import { equipeDoPainel, painelAdmin, painelConsultor, painelGerente } from "./painel.ts";
 import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
@@ -238,8 +238,9 @@ async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null
   await admin.from("pa_conversas").update({ ultima_msg_em: new Date().toISOString(), ...(nomePerfil ? { lead_nome: nomePerfil } : {}) }).eq("id", conversa.id);
   await marcarLida(loja.phone_number_id, msg.id);
 
-  /* com o time já escrevendo, o robô fica quieto: a conversa é deles */
-  if (conversa.primeira_acao_humana_em) return;
+  /* com o time já escrevendo, o robô fica quieto: a conversa é deles. Com número separado, o time fala por outro número:
+     se o cliente voltar a escrever aqui, o robô lembra por onde o atendimento continua (no máximo a cada 30 minutos) */
+  if (conversa.primeira_acao_humana_em) return loja.numero_atendimento ? lembrarLead(loja, conversa) : undefined;
   if (conversa.estado === "encaminhada" || conversa.estado === "fila") return lembrarLead(loja, conversa);
 
   /* espera o lead terminar de digitar; se chegou mensagem mais nova, quem responde é o processamento dela */
@@ -284,9 +285,12 @@ async function lembrarLead(loja: Linha, conversa: Linha) {
     .order("id", { ascending: false }).limit(1).maybeSingle();
   if (ultimoRobo && Date.now() - new Date(ultimoRobo.criado_em).getTime() < LEMBRETE_MS) return;
   const abre = situacaoHorario(loja.horario ?? {}).abre;
-  const texto = conversa.estado === "fila"
-    ? `Sua mensagem ficou anotada. Um consultor continua a conversa aqui mesmo assim que a loja abrir${abre ? `, ${abre}` : ""}.`
-    : "Sua mensagem ficou anotada. Um consultor continua a conversa aqui mesmo em instantes.";
+  const onde = ondeContinua(loja.numero_atendimento);
+  const texto = conversa.primeira_acao_humana_em
+    ? `Seu atendimento continua ${onde}. É por lá que o consultor fala com você.`
+    : conversa.estado === "fila"
+    ? `Sua mensagem ficou anotada. Um consultor continua a conversa ${onde} assim que a loja abrir${abre ? `, ${abre}` : ""}.`
+    : `Sua mensagem ficou anotada. Um consultor continua a conversa ${onde} em instantes.`;
   await enviarTexto(loja.phone_number_id, conversa.lead_wa, texto);
   await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "robo", texto });
 }
@@ -321,7 +325,8 @@ async function responder(loja: Linha, conversaId: string) {
         /* o cron dos 15 minutos ou o time podem ter levado a conversa enquanto a Claude pensava */
         const { data: estadoAgora } = await admin.from("pa_conversas").select("estado").eq("id", conversaId).single();
         if (estadoAgora?.estado !== "robo") return null;
-        return encaminhar(loja, conversa, { ...e, visita: visitaReal(e.visita, historico ?? [], loja.endereco) });
+        const r = await encaminhar(loja, conversa, { ...e, visita: visitaReal(e.visita, historico ?? [], loja.endereco) });
+        return { ...r, onde: ondeContinua(loja.numero_atendimento) };
       },
     });
     if (turno.interrompido) return;
@@ -333,8 +338,8 @@ async function responder(loja: Linha, conversaId: string) {
       troca: "não perguntado", pagamento: "não perguntado", visita: "não perguntado", pendencias: "nenhuma",
       resumo: "O robô ficou indisponível no meio do atendimento; retome a conversa do começo." });
     textos = [encaminhado.fila
-      ? `Recebi sua mensagem. Um consultor continua a conversa aqui mesmo assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`
-      : "Recebi sua mensagem. Um consultor continua a conversa aqui mesmo em instantes."];
+      ? `Recebi sua mensagem. Um consultor continua a conversa ${ondeContinua(loja.numero_atendimento)} assim que a loja abrir${encaminhado.abre ? `, ${encaminhado.abre}` : ""}.`
+      : `Recebi sua mensagem. Um consultor continua a conversa ${ondeContinua(loja.numero_atendimento)} em instantes.`];
   }
 
   if (!textos.length && encaminhado) textos.push(despedidaPadrao(encaminhado));
@@ -579,7 +584,7 @@ async function lerPainel(sessao: string): Promise<Resposta> {
   const prazo = loja.prazo_repasse_min ?? 15;
   const hojeSP = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
   const inicioDoDia = new Date(`${hojeSP}T00:00:00-03:00`).toISOString();
-  const cabecalho = { loja: loja.nome, prazo_repasse_min: prazo, horario: situacaoHorario(loja.horario ?? {}).texto, atualizado_em: new Date().toISOString(), nome: pessoa.nome, eu: pessoa.id };
+  const cabecalho = { loja: loja.nome, numero_atendimento: loja.numero_atendimento ?? null, prazo_repasse_min: prazo, horario: situacaoHorario(loja.horario ?? {}).texto, atualizado_em: new Date().toISOString(), nome: pessoa.nome, eu: pessoa.id };
   const meus = painelConsultor(conversas ?? [], pessoa.id, nomes, prazo);
   if (!pessoa.gerente) return { status: 200, corpo: { ...cabecalho, quem: "consultor", ...meus } };
   return { status: 200, corpo: {
@@ -624,6 +629,21 @@ async function agirPainel(sessao: string, pedido: Linha): Promise<Resposta> {
   const gerente = await donoDaSessao(sessao);
   if (!gerente) return SAIU;
   if (gerente.trocar_senha) return TROCAR;
+  /* "Já chamei": com o número da Bia separado, o sistema não vê a resposta do consultor (sai do número da loja).
+     Quem está com o lead, ou o gerente, marca no painel; isso conta como primeira resposta e para o repasse. */
+  if (pedido.acao === "atendi") {
+    const cid = typeof pedido.conversa_id === "string" && /^[0-9a-f-]{36}$/i.test(pedido.conversa_id) ? pedido.conversa_id : null;
+    const { data: c } = cid ? await admin.from("pa_conversas").select("*").eq("id", cid).eq("loja_id", gerente.loja_id).neq("estado", "encerrada").maybeSingle() : { data: null };
+    if (!c) return { status: 404, corpo: { erro: "Esse lead não está mais aberto. Atualize o painel." } };
+    if (c.vendedor_id !== gerente.id && !gerente.gerente) return { status: 403, corpo: { erro: "Esse lead está com outra pessoa." } };
+    const agoraAtendi = new Date().toISOString();
+    await admin.from("pa_conversas").update({
+      estado: "encaminhada", vendedor_id: c.vendedor_id ?? gerente.id, encaminhado_em: c.encaminhado_em ?? agoraAtendi,
+      primeira_acao_humana_em: c.primeira_acao_humana_em ?? agoraAtendi, ultima_acao_humana_em: agoraAtendi,
+    }).eq("id", c.id);
+    await admin.from("pa_mensagens").insert({ conversa_id: c.id, autor: "sistema", texto: `${primeiroNome(gerente.nome)} marcou que já chamou o cliente pelo WhatsApp da loja` });
+    return { status: 200, corpo: { ok: true } };
+  }
   if (!gerente.gerente) return { status: 403, corpo: { erro: "Só o gerente faz mudanças no painel." } };
   const uuid = (v: unknown) => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
   const agora = new Date().toISOString();

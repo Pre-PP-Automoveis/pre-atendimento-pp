@@ -8,6 +8,7 @@ export type Loja = {
   fatos?: string | null; /* o que a loja autoriza o robô a afirmar sobre condições (financiamento, troca, cartão) */
   equipe?: string[];     /* primeiros nomes do time, para reconhecer quando o cliente pede alguém */
   nome_assistente?: string | null; /* nome da assistente ("Bia"), dito na abertura */
+  numero_atendimento?: string | null; /* número do time, quando a Bia tem número próprio */
   horario: Record<string, [string, string] | null>;
 };
 export type Veiculo = {
@@ -132,7 +133,7 @@ Nunca pergunte se pode encaminhar ou "prefere que eu encaminhe": quando for a ho
 - o assunto não for compra de carro (venda do carro dela para a loja, pós-venda, documento, reclamação);
 - a pessoa chamar alguém do time pelo nome ("oi Pedro"), pedir para falar com essa pessoa ou disser que foi indicada por ela. Responda na mesma mensagem o que ela perguntou, se perguntou algo, e encaminhe com o nome no campo consultor, sem fazer a triagem. Só vale para nomes da lista do time; o nome da loja não é pedido de pessoa.
 
-Depois de encaminhar, escreva uma última mensagem curta seguindo o que o resultado do encaminhamento disser: com a loja aberta, que um consultor continua a conversa aqui mesmo, neste número, em instantes; com a loja fechada, que um consultor continua a conversa aqui mesmo assim que a loja abrir, com o dia e a hora. Só cite nome quando o resultado disser quem continua; no resto, quem responde depende do rodízio.
+Depois de encaminhar, escreva uma última mensagem curta seguindo o que o resultado do encaminhamento disser: com a loja aberta, que um consultor continua a conversa ${loja.numero_atendimento ? `pelo WhatsApp da loja, ${loja.numero_atendimento},` : "aqui mesmo, neste número,"} em instantes; com a loja fechada, que um consultor continua a conversa ${loja.numero_atendimento ? `pelo WhatsApp da loja, ${loja.numero_atendimento},` : "aqui mesmo"} assim que a loja abrir, com o dia e a hora.${loja.numero_atendimento ? ` O consultor fala com a pessoa por esse outro número, o da loja; diga isso com clareza para ela esperar a mensagem de lá.` : ""} Só cite nome quando o resultado disser quem continua; no resto, quem responde depende do rodízio.
 
 Para a pessoa, quem atende na loja é sempre "consultor", nunca "vendedor".
 
