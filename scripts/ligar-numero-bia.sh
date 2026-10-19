@@ -10,7 +10,7 @@
 set -euo pipefail
 [ $# -eq 1 ] || { echo "uso: scripts/ligar-numero-bia.sh <número da Bia com DDD, só dígitos>"; exit 1; }
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
-SR=$("$RAIZ/scripts/supabase.sh" projects api-keys --project-ref qdzuwnqejtjbtcysteip 2>/dev/null | awk '/service_role/{print $NF}')
+SR=$("$RAIZ/scripts/chave-servico.sh")
 read -rs "?Token permanente do usuário do sistema da PP: " TOKEN; echo
 read -rs "?PIN de 6 dígitos do número da Bia (crie um, se for o primeiro registro): " PIN; echo
 SR="$SR" TOKEN="$TOKEN" PIN="$PIN" NUMERO="$1" python3 - <<'PY'

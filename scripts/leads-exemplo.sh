@@ -6,7 +6,7 @@
 # Com a loja desligada (antes do robô entrar no ar) o repasse automático não roda: os exemplos ficam parados.
 set -euo pipefail
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
-SR=$("$RAIZ/scripts/supabase.sh" projects api-keys --project-ref qdzuwnqejtjbtcysteip 2>/dev/null | awk '/service_role/{print $NF}')
+SR=$("$RAIZ/scripts/chave-servico.sh")
 SR="$SR" ACAO="${1:-criar}" python3 - <<'PY'
 import json, os, urllib.request, datetime
 API = "https://qdzuwnqejtjbtcysteip.supabase.co/rest/v1"; SR = os.environ["SR"]

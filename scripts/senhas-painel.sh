@@ -8,7 +8,7 @@
 set -euo pipefail
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
 PAINEL="${PAINEL_URL:-https://pp-painel-leads.vercel.app}"
-SR=$("$RAIZ/scripts/supabase.sh" projects api-keys --project-ref qdzuwnqejtjbtcysteip 2>/dev/null | awk '/service_role/{print $NF}')
+SR=$("$RAIZ/scripts/chave-servico.sh")
 SAIDA="${SAIDA_PAINEL:-$HOME/.config/pre-atendimento-pp/acessos-painel.txt}"
 umask 077
 mkdir -p "$(dirname "$SAIDA")"

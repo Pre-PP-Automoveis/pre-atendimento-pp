@@ -4,7 +4,7 @@
 # para pa_credenciais; não fica em arquivo nem no histórico do terminal.
 set -euo pipefail
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"
-SR=$("$RAIZ/scripts/supabase.sh" projects api-keys --project-ref qdzuwnqejtjbtcysteip 2>/dev/null | awk '/service_role/{print $NF}')
+SR=$("$RAIZ/scripts/chave-servico.sh")
 read -rs "?Token permanente do usuário do sistema da PP: " TOKEN; echo
 [ -n "$TOKEN" ] || { echo "Nenhum token digitado."; exit 1; }
 SR="$SR" TOKEN="$TOKEN" python3 - <<'PY'
