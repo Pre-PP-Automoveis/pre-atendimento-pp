@@ -217,6 +217,14 @@ async function tratarEco(loja: Linha, eco: Linha) {
   if (eco.type === "revoke" || eco.type === "edit") return; // apagar ou editar não é atender
   const { data: conversa } = await admin.from("pa_conversas").select("*").eq("loja_id", loja.id).eq("lead_wa", eco.to).neq("estado", "encerrada").maybeSingle();
   if (!conversa) return; // conversa que o time começou por conta própria: não é lead do pré-atendimento
+  /* eco com horário anterior ao início do atendimento é mensagem antiga (sincronização do histórico da coexistência
+     ou atraso da Meta): não é o time assumindo este lead. Visto no primeiro teste real, 21/10/2026. */
+  const enviadoEm = Number(eco.timestamp) * 1000;
+  if (enviadoEm && enviadoEm < new Date(conversa.iniciada_em).getTime() - 5_000) {
+    await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema",
+      texto: `mensagem antiga do aplicativo ignorada (enviada ${new Date(enviadoEm).toISOString()})`, wa_id: eco.id }).then(() => {}, () => {});
+    return;
+  }
   const { error: dup } = await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "vendedor", tipo: eco.type, texto: textoDe(eco), wa_id: eco.id });
   if (dup) { if (dup.code === "23505") return; throw dup; }
   const agora = new Date().toISOString();
