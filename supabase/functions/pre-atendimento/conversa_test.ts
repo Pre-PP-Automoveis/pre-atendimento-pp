@@ -121,10 +121,9 @@ Deno.test("opinião sobre o modelo sai", () => {
 import { abertura } from "./conversa.ts";
 Deno.test("abertura de consultoria com nome, sem falar em robô", () => {
   const t = abertura({ loja: "Pedro Paulo Automóveis", assistente: "Bia", nomeDoLead: "marcos vinicius", quando: new Date("2026-10-07T10:00:00-03:00") });
-  assertEquals(t.startsWith("Bom dia, Marcos! Sou a Bia, assistente da Pedro Paulo Automóveis. Vou iniciar o seu atendimento e fazer uma triagem"), true);
+  assertEquals(t, "Bom dia, Marcos! Sou a Bia, assistente da Pedro Paulo Automóveis, e vou iniciar o seu atendimento para encontrar o carro ideal para você. Se preferir falar direto com um consultor, é só me avisar.");
   assertEquals(/virtual|rob[oô]|autom[aá]tic/.test(t), false);
-  assertEquals(/dados ficam só com a loja/.test(t) && /falar direto com um consultor/.test(t), true);
-  assertEquals(abertura({ loja: "PP", nomeDoLead: "AUTO PEÇAS 123", quando: new Date("2026-10-07T20:00:00-03:00") }).startsWith("Boa noite! Sou a assistente da PP."), true);
+  assertEquals(abertura({ loja: "PP", nomeDoLead: "AUTO PEÇAS 123", quando: new Date("2026-10-07T20:00:00-03:00") }).startsWith("Boa noite! Sou a assistente da PP, e vou"), true);
 });
 
 Deno.test("primeira resposta sem segundo cumprimento nem segunda apresentação", () => {
@@ -146,5 +145,50 @@ Deno.test("com número da Bia separado, a despedida manda o cliente esperar o Wh
   const onde = ondeContinua("(11) 96606-3690");
   assertEquals(onde, "pelo WhatsApp da loja, (11) 96606-3690");
   assertEquals(despedidaPadrao({ ok: true, vendedor: null, onde }), "Anotei tudo. Um consultor continua a conversa com você pelo WhatsApp da loja, (11) 96606-3690, em instantes.");
-  assertEquals(despedidaPadrao({ ok: true, vendedor: null }), "Anotei tudo. Um consultor continua a conversa com você aqui mesmo, neste número, em instantes.");
+  assertEquals(despedidaPadrao({ ok: true, vendedor: null }), "Anotei tudo. Um consultor continua a conversa com você por aqui mesmo, em instantes.");
+});
+
+import { semCorNaoPedida, semFrasesFeitas as polimento, semNomeRepetido } from "./conversa.ts";
+Deno.test("cor só aparece quando o cliente falou de cor (teste real de 21/10/2026)", () => {
+  const h = (t: string) => [{ autor: "lead", texto: t }];
+  assertEquals(semCorNaoPedida("Temos sim o BMW 320i 2015/2015, preta, com 143.000 km, por R$ 92.900.", h("procuro uma bmw 320i")),
+    "Temos sim o BMW 320i 2015/2015, com 143.000 km, por R$ 92.900.");
+  assertEquals(semCorNaoPedida("O Onix está com 118.423 km rodados, preto, e sai por R$ 49.900.", h("quantos km?")),
+    "O Onix está com 118.423 km rodados e sai por R$ 49.900.");
+  const pediu = "O Onix é preto, com 118.423 km.";
+  assertEquals(semCorNaoPedida(pediu, h("qual a cor dele?")), pediu);
+  assertEquals(semCorNaoPedida("Temos um Cruze, branco.", h("tem cruze preto?")), "Temos um Cruze, branco.");
+});
+
+Deno.test("fechamento genérico e convite de balcão saem", () => {
+  assertEquals(polimento("O Onix 2015 está por R$ 49.900. Quer saber mais algum detalhe dele?"), "O Onix 2015 está por R$ 49.900.");
+  assertEquals(polimento("O consultor organiza o test drive com você na loja, é só aparecer por lá: Rua Juquiá, 275."),
+    "O consultor organiza o test drive com você na loja: Rua Juquiá, 275.");
+  assertEquals(polimento("Quer saber mais alguma coisa sobre ele?"), "Quer saber mais alguma coisa sobre ele?");
+});
+
+Deno.test("nome da pessoa não se repete em mensagens seguidas", () => {
+  const h = [{ autor: "robo", texto: "Boa tarde, Kauan! Sou a Bia." }, { autor: "lead", texto: "test drive?" }];
+  assertEquals(semNomeRepetido("Dá sim, Kauan. O consultor organiza.", h, "Kauan"), "Dá sim. O consultor organiza.");
+  assertEquals(semNomeRepetido("Kauan, o consultor organiza.", h, "Kauan"), "O consultor organiza.");
+  const longe = [{ autor: "robo", texto: "Boa tarde, Kauan!" }, { autor: "robo", texto: "a" }, { autor: "robo", texto: "b" }];
+  assertEquals(semNomeRepetido("Dá sim, Kauan.", longe, "Kauan"), "Dá sim, Kauan.");
+});
+
+Deno.test("cor solta no fim da frase e opinião sobre pagamento saem sem quebrar a frase", () => {
+  const h = [{ autor: "lead", texto: "o cobalt ainda tá aí?" }];
+  assertEquals(semCorNaoPedida("Ele tem 150.362 km e é na cor preta.", h), "Ele tem 150.362 km.");
+  assertEquals(semCorNaoPedida("Temos o Fusion AWD 2013, cor branca, com 148.754 km.", h), "Temos o Fusion AWD 2013, com 148.754 km.");
+  assertEquals(semCorNaoPedida("O Ka está por R$ 27.900. Ele é prata.", h), "O Ka está por R$ 27.900.");
+  assertEquals(polimento("Pagando à vista costuma facilitar bastante a negociação. Você tem algum carro na troca?"), "Você tem algum carro na troca?");
+  assertEquals(polimento("O Ka 2009 está anunciado por R$ 27.900, se quiser saber mais alguma coisa sobre ele é só falar."), "O Ka 2009 está anunciado por R$ 27.900.");
+  assertEquals(polimento("A quilometragem exata não está na minha ficha, isso o consultor confirma."), "A quilometragem exata eu não tenho aqui, isso o consultor confirma.");
+  const ana = [{ autor: "robo", texto: "Boa noite, Ana!" }];
+  assertEquals(semNomeRepetido("Fica anotado, Ana Paula. Segunda o consultor confirma.", ana, "Ana"), "Fica anotado. Segunda o consultor confirma.");
+});
+
+Deno.test("à vista sem opinião, ficha fora da boca da Bia, convite sem 'aparecer'", () => {
+  assertEquals(polimento("Pagando à vista fica mais simples de fechar negócio. Você tem carro na troca?"), "Você tem carro na troca?");
+  assertEquals(polimento("O Cruze LT está sem preço informado nessa ficha, então o consultor confirma."), "O Cruze LT está sem preço informado, então o consultor confirma.");
+  assertEquals(polimento("Que tal aparecer para ver o Onix de perto?"), "Que tal vir para ver o Onix de perto?");
 });

@@ -33,11 +33,11 @@ export const ENCAMINHAR: Anthropic.Tool = {
 
 export type Encaminhamento = { motivo: string; consultor?: string; veiculo: string; troca: string; pagamento: string; visita: string; pendencias: string; resumo: string };
 export type Resultado = { ok: boolean; vendedor: string | null; nomeado?: boolean; fila?: boolean; abre?: string | null; erro?: string;
-  onde?: string /* por onde o consultor continua: "aqui mesmo, neste número" ou "pelo WhatsApp da loja, (11) ..." */ };
+  onde?: string /* por onde o consultor continua: "por aqui mesmo" ou "pelo WhatsApp da loja, (11) ..." */ };
 
 /* com o número da Bia separado do número do time, o consultor chama o cliente pelo WhatsApp da loja */
 export const ondeContinua = (numeroAtendimento?: string | null) =>
-  numeroAtendimento ? `pelo WhatsApp da loja, ${numeroAtendimento}` : "aqui mesmo, neste número";
+  numeroAtendimento ? `pelo WhatsApp da loja, ${numeroAtendimento}` : "por aqui mesmo";
 
 /* lead vira user, robô vira assistant; mensagens seguidas do mesmo lado viram um turno só.
    O contexto do momento (hora, origem, carro) vai junto da última mensagem do lead. */
@@ -120,8 +120,8 @@ export async function rodarTurno(p: {
 }
 
 /* Abertura da primeira resposta, em texto fixo (pa_lojas.aviso_inicial manda, se existir). Tom de consultoria, com o nome da
-   assistente, sem falar em robô ou assistente virtual (Kauan, 07/10/2026); diz para que servem os dados e que dá para pedir
-   um consultor. Cumprimento pela hora de São Paulo e pelo primeiro nome do perfil, se parecer nome.
+   assistente, sem falar em robô ou assistente virtual (Kauan, 07/10/2026), e diz que dá para pedir um consultor. Enxugada
+   em 21/10/2026 depois do primeiro teste real: saiu a frase dos dados, que pesava no primeiro balão. Cumprimento pela hora de São Paulo e pelo primeiro nome do perfil, se parecer nome.
    Atenção: o item 8.5 do contrato pede dizer na primeira mensagem que a conversa é automatizada; o Kauan decidiu tirar. */
 export function abertura(p: { loja: string; assistente?: string | null; nomeDoLead?: string | null; quando?: Date }) {
   const hora = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", hour: "2-digit", hourCycle: "h23" }).format(p.quando ?? new Date()));
@@ -131,8 +131,8 @@ export function abertura(p: { loja: string; assistente?: string | null; nomeDoLe
   const empresa = /\d|\b(ltda|me|eireli|auto|autos|pe[cç]as|ve[ií]culos|loja|motors?|multimarcas|oficial|store|com[eé]rcio|servi[cç]os|distribuidora)\b/i.test(p.nomeDoLead ?? "");
   const nome = !empresa && /^[A-Za-zÀ-ÿ]{2,15}$/.test(primeiro) ? primeiro[0].toUpperCase() + primeiro.slice(1).toLowerCase() : "";
   const quem = p.assistente ? `Sou a ${p.assistente}, assistente da ${p.loja}` : `Sou a assistente da ${p.loja}`;
-  return `${saudacao}${nome ? `, ${nome}` : ""}! ${quem}. Vou iniciar o seu atendimento e fazer uma triagem rápida para encontrar o carro ideal para você. ` +
-    "Seus dados ficam só com a loja, e se preferir falar direto com um consultor é só pedir.";
+  return `${saudacao}${nome ? `, ${nome}` : ""}! ${quem}, e vou iniciar o seu atendimento para encontrar o carro ideal para você. ` +
+    "Se preferir falar direto com um consultor, é só me avisar.";
 }
 
 /* A abertura já cumprimenta e apresenta a assistente. Se o modelo cumprimentar ou se apresentar de novo, sai:
@@ -176,7 +176,8 @@ export function notasDaConversa(historico: Msg[], endereco: string | null, prime
   const notas: string[] = [];
   const robo = historico.filter((m) => m.autor === "robo");
   const lead = historico.filter((m) => m.autor === "lead");
-  const falasDoLead = lead.map((m) => m.texto.replace(/\[[^\]]*\]/g, "")).join(" \n ");
+  /* sem marcações do sistema e sem link de anúncio, onde o "2017-2017" parecia o ano do carro da troca */
+  const falasDoLead = lead.map((m) => m.texto.replace(/\[[^\]]*\]/g, "").replace(/\S*\/\S*/g, "")).join(" \n ");
   for (const [chave, tema] of Object.entries(TEMAS)) {
     const disse = lead.map((m) => m.texto).find((t) => tema.resposta.test(t) && (chave !== "troca" || /troca|tenho|n[aã]o tenho/i.test(t)));
     if (disse) { notas.push(`A pessoa já falou de ${tema.nome}: "${disse.slice(0, 80)}". Use isso e não pergunte de novo.`); continue; }
@@ -217,13 +218,24 @@ export function semFrasesFeitas(texto: string) {
   const frases = texto.split(/(?<=[.!?])\s+/)
     .filter((f) => !/antes de encaminhar|aguardar a resposta d|vou aguardar|instru[cç][aã]o|encaminhamento|^j[aá] (te )?aviso antes/i.test(f));
   const limpas = frases.filter((f) => !/posso te ajudar com (mais|outras?)|posso ajudar em mais|qualquer coisa,? (estou|t[ôo]) por aqui|em que (mais )?posso ajudar/i.test(f))
+    /* fechamento de formulário ("Quer saber mais algum detalhe dele?"): a conversa anda sozinha, sem oferta genérica */
+    .filter((f) => !/^(voc[eê] )?(quer|gostaria de|deseja) (saber mais|mais detalhes)\b[^?]*\?$|^ficou (com )?alguma d[uú]vida\?$|^(tem|teria) mais alguma (d[uú]vida|pergunta)\b[^?]*\?$/i.test(f.trim()))
     /* pedir licença para passar ao consultor: o roteiro manda passar, não perguntar */
     .filter((f) => !/quer que eu (j[aá] )?(te )?(encaminhe|passe|coloque)|prefere que eu (te )?(encaminhe|passe|coloque)|posso (j[aá] )?te (colocar em contato|passar para|passar pr[oa])/i.test(f))
     .filter((f) => !/^at[ée] j[aá]!?$/i.test(f.trim()))
+    /* convite de loja com cara de balcão de bairro */
+    .map((f) => f.replace(/,?\s*[ée] s[óo] (aparecer|passar) (por l[aá]|aqui|na loja)/i, ""))
     .map((f) => f.replace(/,\s*show([.!])$/i, "$1"))
     /* opinião sobre o modelo que não está na ficha */
     .map((f) => f.replace(/,?\s*mas [^.?!]*\b(costuma|geralmente|normalmente)\b[^.?!]*/i, ""))
-    .filter((f) => !/\b(costuma|geralmente|normalmente) (ser|vir|ter)\b/i.test(f))
+    /* opinião ("costuma vir com ar", "à vista costuma facilitar a negociação"): a segunda soa promessa de desconto */
+    .filter((f) => !/\b(costuma|geralmente|normalmente)\b|^pagando [àa] vista\b|[àa] vista (fica|facilita|ajuda)/i.test(f))
+    .map((f) => f.replace(/\b(que tal|pode|s[óo]) aparecer\b/gi, "$1 vir"))
+    /* oferta genérica no fim da frase ("..., se quiser saber mais alguma coisa sobre ele é só falar") */
+    .map((f) => f.replace(/,?\s*se (quiser|precisar)[^.?!]*\b(saber mais|mais detalhes|mais alguma coisa)\b[^.?!]*/i, "").replace(/^\s*[.!]$/, ""))
+    /* "ficha" é a palavra de bastidor; para o cliente a informação simplesmente está ou não está com a Bia */
+    .map((f) => f.replace(/n[aã]o (est[aá]|consta|aparece) na (minha )?ficha/gi, "eu não tenho aqui")
+      .replace(/est[aá] certo na (minha )?ficha/gi, "posso confirmar").replace(/\s+(aqui )?(na (minha )?|n(ess|est)a )ficha\b/gi, ""))
     /* "Perfeito, Carla." sozinho cai; "Show, Marcos, já anotei" vira "Marcos, já anotei" */
     .map((f, i) => {
       if (i > 0 || !ABERTURA_FEITA.test(f)) return f;
@@ -246,7 +258,7 @@ export function semPromessaAntesDaHora(texto: string, encaminhado: boolean) {
 /* pergunta da triagem feita na mensagem anterior e ainda sem resposta não volta na mensagem seguinte */
 export function semPerguntaRepetida(texto: string, historico: Msg[]) {
   const anterior = [...historico].reverse().find((m) => m.autor === "robo")?.texto ?? "";
-  const falasDoLead = historico.filter((m) => m.autor === "lead").map((m) => m.texto).join(" \n ");
+  const falasDoLead = historico.filter((m) => m.autor === "lead").map((m) => m.texto.replace(/\S*\/\S*/g, "")).join(" \n ");
   const pendentes = Object.values(TEMAS).filter((t) =>
     (anterior.match(/[^.!?]*\?/g) ?? []).some((q) => t.pergunta.test(q)) && !t.resposta.test(falasDoLead));
   if (!pendentes.length) return texto;
@@ -267,9 +279,34 @@ export function semMencaoDeRobo(texto: string, historico: Msg[]) {
   return (limpas.length ? limpas : frases).join(" ").trim();
 }
 
+/* Cor só quando o cliente falou de cor (regra do prompt que o modelo furou no primeiro teste real, 21/10/2026:
+   "BMW 320i 2015, preta, com 143 mil km" sem ninguém perguntar). */
+const COR_SOLTA = "pret[oa]|branc[oa]|prata|cinza|vermelh[oa]|azul|verde|amarel[oa]|marrom|bege|dourad[oa]|vinho|grafite|laranja";
+export function semCorNaoPedida(texto: string, historico: Msg[]) {
+  const doLead = historico.filter((m) => m.autor === "lead").map((m) => m.texto).join(" ");
+  if (/\bcor(es)?\b/i.test(doLead) || new RegExp(`(?<!\\p{L})(${COR_SOLTA})s?(?!\\p{L})`, "iu").test(doLead)) return texto;
+  const cor = `(?:na |de )?(?:cor )?(?:${COR_SOLTA})s?`;
+  const limpo = texto
+    .replace(new RegExp(`,\\s*${cor}\\s*,\\s*e\\s+`, "giu"), " e ")                        // "rodados, preto, e sai por" -> "rodados e sai por"
+    .replace(new RegExp(`(?:,|\\s+e)\\s+(?:(?:é|está)\\s+)?${cor}(?=\\s*[,.;!?])`, "giu"), "")  // ", preta," / "e é na cor preta."
+    .replace(new RegExp(`\\s+(?:na|de) cor (?:${COR_SOLTA})s?(?!\\p{L})`, "giu"), "")
+    .split(/(?<=[.!?])\s+/).filter((f) => !new RegExp(`^(?:ele|ela) (?:é|está) ${cor}[.!]$`, "iu").test(f)).join(" ").trim();
+  return limpo || texto;
+}
+
+/* nome da pessoa no máximo uma vez a cada três mensagens: "Dá sim, Kauan" em toda resposta soa script */
+export function semNomeRepetido(texto: string, historico: Msg[], nome?: string | null) {
+  const n = (nome ?? "").replace(/[^\p{L}]/gu, "");
+  if (n.length < 2) return texto;
+  const recentes = historico.filter((m) => m.autor === "robo").slice(-2).map((m) => m.texto).join(" ");
+  if (!new RegExp(`(?<!\\p{L})${n}(?!\\p{L})`, "iu").test(recentes)) return texto;
+  const t = texto.replace(new RegExp(`,\\s*${n}(?:\\s+\\p{Lu}\\p{L}+)?(?=[,.!?])`, "gu"), "").replace(new RegExp(`^${n}(?:\\s+\\p{Lu}\\p{L}+)?,\\s*`, "u"), "").trim();
+  return t ? t[0].toUpperCase() + t.slice(1) : texto;
+}
+
 /* tudo o que passa pelo texto do robô antes de sair, igual no atendimento real e no simulador */
-export const polir = (texto: string, historico: Msg[], encaminhado: boolean) =>
-  semMencaoDeRobo(semPerguntaRepetida(semPromessaAntesDaHora(semFrasesFeitas(semTravessao(texto)), encaminhado), historico), historico);
+export const polir = (texto: string, historico: Msg[], encaminhado: boolean, nome?: string | null) =>
+  semNomeRepetido(semCorNaoPedida(semMencaoDeRobo(semPerguntaRepetida(semPromessaAntesDaHora(semFrasesFeitas(semTravessao(texto)), encaminhado), historico), historico), historico), historico, nome);
 
 /* despedida de reserva, quando o modelo encaminhou e não escreveu nada */
 export const despedidaPadrao = (r: Resultado) => {

@@ -367,7 +367,7 @@ async function responder(loja: Linha, conversaId: string) {
   if (agoraConversa?.primeira_acao_humana_em) return;
   if (!encaminhado && agoraConversa?.estado !== "robo") return; // o cron dos 15 minutos encaminhou no meio
   /* aviso do item 8.5 abrindo a primeira mensagem, em texto fixo */
-  let texto = polir(textos.join("\n\n"), historico ?? [], !!encaminhado);
+  let texto = polir(textos.join("\n\n"), historico ?? [], !!encaminhado, primeiroNome(conversa.lead_nome));
   if (!texto && encaminhado) texto = despedidaPadrao(encaminhado);
   if (!texto) return;
   if (primeiroTurno) {
@@ -375,7 +375,11 @@ async function responder(loja: Linha, conversaId: string) {
     /* a abertura já chama a pessoa pelo nome: o nome sai da resposta desta primeira mensagem */
     const nome = primeiroNome(conversa.lead_nome);
     const semNome = nome ? texto.replace(new RegExp(`,?\\s*${nome.replace(/[^\\p{L}]/gu, "")}(?=[,.!?])`, "gu"), "") : texto;
-    texto = `${loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: conversa.lead_nome })}\n\n${semAvisoRepetido(semNome, ultimaDoLead)}`;
+    texto = semAvisoRepetido(semNome, ultimaDoLead);
+    /* a apresentação vai num balão e a resposta em outro, como uma pessoa escreveria no WhatsApp */
+    const oi = loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: conversa.lead_nome });
+    await enviarTexto(loja.phone_number_id, conversa.lead_wa, oi);
+    await admin.from("pa_mensagens").insert({ conversa_id: conversaId, autor: "robo", texto: oi });
   }
 
   await enviarTexto(loja.phone_number_id, conversa.lead_wa, texto);

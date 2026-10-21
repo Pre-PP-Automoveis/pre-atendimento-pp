@@ -59,7 +59,7 @@ export async function simular(
         });
         custo += t.custo;
         /* o histórico aqui já tem a mensagem do lead deste turno, igual ao atendimento real */
-        let texto = polir((t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n"), historico, !!t.encaminhado);
+        let texto = polir((t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n"), historico, !!t.encaminhado, (c.lead_nome ?? "").trim().split(/\s+/)[0] || null);
         if (!texto && t.encaminhado) texto = despedidaPadrao(t.encaminhado);
         if (i === 0 && texto) texto = `${loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: c.lead_nome, quando })}\n\n${semAvisoRepetido(texto, msg)}`;
         historico.push({ autor: "robo", texto: texto || "[o robô não respondeu]" });
