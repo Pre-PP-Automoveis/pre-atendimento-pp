@@ -372,7 +372,10 @@ async function responder(loja: Linha, conversaId: string) {
   if (!texto) return;
   if (primeiroTurno) {
     const ultimaDoLead = [...(historico ?? [])].reverse().find((m) => m.autor === "lead")?.texto ?? "";
-    texto = `${loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: conversa.lead_nome })}\n\n${semAvisoRepetido(texto, ultimaDoLead)}`;
+    /* a abertura já chama a pessoa pelo nome: o nome sai da resposta desta primeira mensagem */
+    const nome = primeiroNome(conversa.lead_nome);
+    const semNome = nome ? texto.replace(new RegExp(`,?\\s*${nome.replace(/[^\\p{L}]/gu, "")}(?=[,.!?])`, "gu"), "") : texto;
+    texto = `${loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: conversa.lead_nome })}\n\n${semAvisoRepetido(semNome, ultimaDoLead)}`;
   }
 
   await enviarTexto(loja.phone_number_id, conversa.lead_wa, texto);
