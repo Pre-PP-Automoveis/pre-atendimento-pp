@@ -64,6 +64,12 @@ async function registrarErro(onde: string, e: unknown, lojaId: string | null = n
 const bater = (chave: string, detalhe: unknown = null) =>
   admin.from("pa_saude").upsert({ chave, em: new Date().toISOString(), detalhe }).then(() => {}, () => {});
 
+/* no Brasil, o WhatsApp às vezes manda o celular sem o 9 da frente (551148779809 x 5511948779809): compara os dois */
+const mesmoCelular = (a: string, b: string) => {
+  const sem9 = (n: string) => n.replace(/\D/g, "").replace(/^(55\d{2})9(\d{8})$/, "$1$2");
+  return sem9(a) === sem9(b);
+};
+
 const primeiroNome = (s: string | null | undefined) => (s || "").trim().split(/\s+/)[0] || "";
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -229,7 +235,7 @@ async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null
   const { data: vendedor } = await admin.from("pa_vendedores").select("id").eq("loja_id", loja.id).eq("whatsapp", msg.from).maybeSingle();
   if (vendedor) return;
   /* modo de teste: com a loja desligada, só os números da lista falam com a Bia; o resto fica com o time */
-  if (!loja.ativo && !(loja.numeros_teste ?? []).includes(msg.from)) return;
+  if (!loja.ativo && !(loja.numeros_teste ?? []).some((n: string) => mesmoCelular(n, msg.from))) return;
   /* contato que o gerente marcou como "não é lead" no painel: o robô não responde */
   const { data: ignorado } = await admin.from("pa_ignorados").select("wa").eq("loja_id", loja.id).eq("wa", msg.from).maybeSingle();
   if (ignorado) return;
