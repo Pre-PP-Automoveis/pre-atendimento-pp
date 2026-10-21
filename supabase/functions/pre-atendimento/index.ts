@@ -174,7 +174,9 @@ async function processarPayload(payload: Linha) {
       const ecos = change?.field === "smb_message_echoes" ? v.message_echoes ?? [] : [];
       const phoneNumberId = v.metadata?.phone_number_id;
       if (!phoneNumberId || !(mensagens.length || ecos.length)) continue; // status de entrega e leitura: ignorados
-      const { data: loja } = await admin.from("pa_lojas").select("*").eq("phone_number_id", phoneNumberId).eq("ativo", true).maybeSingle();
+      /* loja ligada, ou em modo de teste (só os números da lista são atendidos; o filtro fica em tratarMensagem) */
+      const { data: loja } = await admin.from("pa_lojas").select("*").eq("phone_number_id", phoneNumberId)
+        .or("ativo.eq.true,numeros_teste.not.is.null").maybeSingle();
       if (!loja) { console.warn("número sem loja ativa", phoneNumberId); continue; }
       /* eco primeiro: se o vendedor escreveu no mesmo lote em que o lead, o robô já precisa saber que saiu */
       for (const eco of ecos) {
@@ -226,6 +228,8 @@ async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null
   /* vendedor escrevendo do celular pessoal para o número da loja: não é lead */
   const { data: vendedor } = await admin.from("pa_vendedores").select("id").eq("loja_id", loja.id).eq("whatsapp", msg.from).maybeSingle();
   if (vendedor) return;
+  /* modo de teste: com a loja desligada, só os números da lista falam com a Bia; o resto fica com o time */
+  if (!loja.ativo && !(loja.numeros_teste ?? []).includes(msg.from)) return;
   /* contato que o gerente marcou como "não é lead" no painel: o robô não responde */
   const { data: ignorado } = await admin.from("pa_ignorados").select("wa").eq("loja_id", loja.id).eq("wa", msg.from).maybeSingle();
   if (ignorado) return;
@@ -387,7 +391,7 @@ async function encaminhar(loja: Linha, conversa: Linha, e: Encaminhamento): Prom
 /* cron: o lead fica no máximo prazo_robo_min com o robô. Passou disso sem a triagem acabar (o lead parou de
    responder, ou a conversa se alongou), vai para o consultor da vez com o que tiver; de noite, para a fila. */
 async function tirarDoRobo() {
-  const { data: lojas } = await admin.from("pa_lojas").select("*").eq("ativo", true);
+  const { data: lojas } = await admin.from("pa_lojas").select("*").or("ativo.eq.true,numeros_teste.not.is.null");
   let total = 0;
   for (const loja of lojas ?? []) {
     const { data: abertas } = await admin.from("pa_conversas").select("*").eq("loja_id", loja.id).eq("estado", "robo").is("primeira_acao_humana_em", null);
@@ -407,7 +411,7 @@ async function tirarDoRobo() {
 /* cron: despacha a fila de cada loja ativa que já abriu, na ordem em que os leads chegaram.
    Quem falhou antes (modelo da Meta fora, nenhum vendedor ativo) também está na fila e é tentado de novo. */
 async function despacharFila() {
-  const { data: lojas } = await admin.from("pa_lojas").select("*").eq("ativo", true);
+  const { data: lojas } = await admin.from("pa_lojas").select("*").or("ativo.eq.true,numeros_teste.not.is.null");
   let total = 0;
   for (const loja of lojas ?? []) {
     if (!situacaoHorario(loja.horario ?? {}).aberta) continue;
@@ -424,7 +428,7 @@ async function despacharFila() {
 /* cron: vendedor da vez não respondeu no prazo, o lead passa para o próximo; acabado o rodízio, avisa o gerente.
    Só com a loja aberta: aviso das 17h50 sem resposta repassa na abertura seguinte. */
 async function repassar() {
-  const { data: lojas } = await admin.from("pa_lojas").select("*").eq("ativo", true);
+  const { data: lojas } = await admin.from("pa_lojas").select("*").or("ativo.eq.true,numeros_teste.not.is.null");
   let repassados = 0, escalados = 0;
   for (const loja of lojas ?? []) {
     if (!situacaoHorario(loja.horario ?? {}).aberta) continue;
