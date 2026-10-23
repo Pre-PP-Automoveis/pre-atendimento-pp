@@ -15,7 +15,16 @@ export type Origem = {
 };
 
 /* referral do clique para WhatsApp (Meta Ads): source_type "ad", source_id, headline, ctwa_clid */
-export type Referral = { source_type?: string; source_id?: string; source_url?: string; headline?: string; ctwa_clid?: string };
+export type Referral = { source_type?: string; source_id?: string; source_url?: string; headline?: string; body?: string; ctwa_clid?: string };
+
+/* O que o anúncio pago diz, para a Bia saber de que carro a pessoa fala. O título costuma ser o nome da página
+   ("Pp Garage 37") e o carro vem no texto (primeiro lead real de tráfego, 23/10/2026: "Gol G5 2012, branco. Gol G6
+   2017, vermelho"). Sem emoji e sem quebra de linha, até 400 caracteres. */
+export function textoDoAnuncio(r: Referral): string | null {
+  const limpo = (t?: string) => (t ?? "").replace(/[\p{Extended_Pictographic}\uFE0F]/gu, "").replace(/\s+/g, " ").trim();
+  const partes = [limpo(r.headline), limpo(r.body).slice(0, 400)].filter(Boolean);
+  return partes.length ? partes.join(". ").replace(/\.\s*\./g, ".") : null;
+}
 
 const DOMINIOS: Array<[RegExp, Canal]> = [
   [/(^|\.)webmotors\.com\.br$/, "WebMotors"],
@@ -62,7 +71,7 @@ export function lerOrigem(texto: string, referral?: Referral | null): Origem {
   if (referral && (referral.source_type === "ad" || referral.ctwa_clid || referral.source_id)) {
     return {
       canal: "Tráfego Pago", anuncio_id: referral.source_id ?? null,
-      veiculo_texto: referral.headline ?? null, url: referral.source_url ?? null,
+      veiculo_texto: textoDoAnuncio(referral), url: referral.source_url ?? null,
       referral: referral as Record<string, unknown>,
     };
   }

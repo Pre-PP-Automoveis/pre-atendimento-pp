@@ -221,3 +221,14 @@ Deno.test("primeira resposta sem o nome que a abertura já usou", () => {
   assertEquals(semONome("Isso é com o consultor, Jhonatan: ele continua por aqui.", "Jhonatan"), "Isso é com o consultor: ele continua por aqui.");
   assertEquals(semONome("Kauan, temos sim.", "Kauan"), "Temos sim.");
 });
+
+Deno.test("depois da primeira resposta, sem novo 'Boa tarde, Fulano!' e sem 'costumam agradar'", () => {
+  const h = [{ autor: "lead", texto: "oi" }, { autor: "robo", texto: "Boa tarde, Vitor! Sou a Bia." }, { autor: "lead", texto: "boa tarde, tudo bem?" }];
+  assertEquals(polirTudo("Boa tarde, Vitor! Temos dois Gol no pátio agora.", h, false, "Vitor"), "Temos dois Gol no pátio agora.");
+  assertEquals(polimento("Temos o Polo. Esses carros costumam agradar quem busca economia."), "Temos o Polo.");
+});
+
+Deno.test("nome do perfil em maiúsculas também sai quando repetido", () => {
+  const h = [{ autor: "robo", texto: "Boa tarde, Vitor! Sou a Bia." }, { autor: "lead", texto: "tudo bem?" }];
+  assertEquals(semNomeRepetido("Tudo bem, Vitor! Temos dois Gol.", h, "VITOR DE PAULA"), "Tudo bem! Temos dois Gol.");
+});

@@ -38,3 +38,9 @@ Deno.test("contato direto fica Não identificado, de propósito", () => {
   assertEquals(o.canal, "Não identificado");
   assertEquals(o.anuncio_id, null);
 });
+
+import { textoDoAnuncio } from "./origem.ts";
+Deno.test("anúncio pago: o carro vem do texto, não do título com o nome da página", () => {
+  const t = textoDoAnuncio({ headline: "Pp Garage 37", body: "Dois Volkswagen Gol no pátio, de duas gerações diferentes. 🚗\n\nGol G5 2012, branco.\nGol G6 2017, vermelho." });
+  assertEquals(t, "Pp Garage 37. Dois Volkswagen Gol no pátio, de duas gerações diferentes. Gol G5 2012, branco. Gol G6 2017, vermelho.");
+});

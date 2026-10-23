@@ -233,7 +233,7 @@ export function semFrasesFeitas(texto: string, ofertaPedida = false) {
     /* opinião sobre o modelo que não está na ficha */
     .map((f) => f.replace(/,?\s*mas [^.?!]*\b(costuma|geralmente|normalmente)\b[^.?!]*/i, ""))
     /* opinião ("costuma vir com ar", "à vista costuma facilitar a negociação"): a segunda soa promessa de desconto */
-    .filter((f) => !/\b(costuma|geralmente|normalmente)\b|^pagando [àa] vista\b|[àa] vista (fica|facilita|ajuda)/i.test(f))
+    .filter((f) => !/\b(costumam?|geralmente|normalmente)\b|^pagando [àa] vista\b|[àa] vista (fica|facilita|ajuda)/i.test(f))
     .map((f) => f.replace(/\b(que tal|pode|s[óo]) aparecer\b/gi, "$1 vir"))
     /* oferta genérica no fim da frase ("..., se quiser saber mais alguma coisa sobre ele é só falar") */
     .map((f) => f.replace(/,?\s*se (quiser|precisar)[^.?!]*\b(saber mais|mais detalhes|mais alguma coisa)\b[^.?!]*/i, "").replace(/^\s*[.!]$/, ""))
@@ -303,8 +303,14 @@ export function semCorNaoPedida(texto: string, historico: Msg[]) {
 /* abertura curta quando o primeiro turno já passou a conversa para uma pessoa sem triagem */
 export const aberturaCurta = (motivo?: string | null) => motivo === "fora_do_escopo" || motivo === "pediu_pessoa";
 
+/* "VITOR" ou "vitor" no perfil vira "Vitor", que é como a Bia escreve */
+const nomeProprio = (nome?: string | null) => {
+  const n = (nome ?? "").trim().split(/\s+/)[0].replace(/[^\p{L}]/gu, "");
+  return n ? n[0].toUpperCase() + n.slice(1).toLowerCase() : "";
+};
+
 export function semNomeRepetido(texto: string, historico: Msg[], nome?: string | null) {
-  const n = (nome ?? "").replace(/[^\p{L}]/gu, "");
+  const n = nomeProprio(nome);
   if (n.length < 2) return texto;
   const recentes = historico.filter((m) => m.autor === "robo").slice(-2).map((m) => m.texto).join(" ");
   if (!new RegExp(`(?<!\\p{L})${n}(?!\\p{L})`, "iu").test(recentes)) return texto;
@@ -314,7 +320,7 @@ export function semNomeRepetido(texto: string, historico: Msg[], nome?: string |
 /* tira o nome da pessoa usado como vocativo (", Pedro." / "Pedro, ..."); a primeira resposta usa direto, porque a
    abertura logo acima já chamou pelo nome. Antes ficava no index.ts com uma barra a mais e nunca casava (23/10/2026). */
 export function semONome(texto: string, nome?: string | null) {
-  const n = (nome ?? "").replace(/[^\p{L}]/gu, "");
+  const n = nomeProprio(nome);
   if (n.length < 2) return texto;
   const t = texto.replace(new RegExp(`,\\s*${n}(?:\\s+\\p{Lu}\\p{L}+)?(?=[,.!?:])`, "gu"), "").replace(new RegExp(`^${n}(?:\\s+\\p{Lu}\\p{L}+)?,\\s*`, "u"), "").trim();
   return t ? t[0].toUpperCase() + t.slice(1) : texto;
@@ -324,6 +330,11 @@ export function semONome(texto: string, nome?: string | null) {
 export const polir = (texto: string, historico: Msg[], encaminhado: boolean, nome?: string | null) => {
   const ultimaDoLead = [...historico].reverse().find((m) => m.autor === "lead")?.texto ?? "";
   const perguntouSeERobo = PERGUNTOU_SE_E_ROBO.test(ultimaDoLead.replace(/\[[^\]]*\]/g, ""));
+  /* já houve resposta da Bia: "Boa tarde, Vitor!" de novo no começo sai (lead real, 23/10/2026) */
+  if (historico.some((m) => m.autor === "robo")) {
+    const semOi = texto.replace(/^\s*(oi|ol[aá]|bom dia|boa tarde|boa noite)\b[^.!?\n]{0,30}[!.]\s*/i, "").trim();
+    if (semOi.length >= 12) texto = semOi[0].toUpperCase() + semOi.slice(1);
+  }
   return semNomeRepetido(semCorNaoPedida(semMencaoDeRobo(semPerguntaRepetida(semPromessaAntesDaHora(
     semFrasesFeitas(semTravessao(texto), perguntouSeERobo), encaminhado), historico), historico), historico), historico, nome);
 };
