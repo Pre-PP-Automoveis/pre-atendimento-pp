@@ -11,7 +11,7 @@ import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHo
 import { foneLegivel, passouDoRobo, pessoaPedida, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
-import { abertura, aberturaCurta, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { abertura, aberturaCurta, semONome, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 import { equipeDoPainel, painelAdmin, painelConsultor, painelGerente } from "./painel.ts";
 import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
@@ -385,7 +385,7 @@ async function responder(loja: Linha, conversaId: string) {
     const ultimaDoLead = [...(historico ?? [])].reverse().find((m) => m.autor === "lead")?.texto ?? "";
     /* a abertura já chama a pessoa pelo nome: o nome sai da resposta desta primeira mensagem */
     const nome = primeiroNome(conversa.lead_nome);
-    const semNome = nome ? texto.replace(new RegExp(`,?\\s*${nome.replace(/[^\\p{L}]/gu, "")}(?=[,.!?:])`, "gu"), "") : texto;
+    const semNome = semONome(texto, nome);
     texto = semAvisoRepetido(semNome, ultimaDoLead);
     /* a apresentação vai num balão e a resposta em outro, como uma pessoa escreveria no WhatsApp */
     const oi = loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: conversa.lead_nome, curta: aberturaCurta(motivo) });

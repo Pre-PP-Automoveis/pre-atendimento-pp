@@ -308,7 +308,15 @@ export function semNomeRepetido(texto: string, historico: Msg[], nome?: string |
   if (n.length < 2) return texto;
   const recentes = historico.filter((m) => m.autor === "robo").slice(-2).map((m) => m.texto).join(" ");
   if (!new RegExp(`(?<!\\p{L})${n}(?!\\p{L})`, "iu").test(recentes)) return texto;
-  const t = texto.replace(new RegExp(`,\\s*${n}(?:\\s+\\p{Lu}\\p{L}+)?(?=[,.!?])`, "gu"), "").replace(new RegExp(`^${n}(?:\\s+\\p{Lu}\\p{L}+)?,\\s*`, "u"), "").trim();
+  return semONome(texto, n);
+}
+
+/* tira o nome da pessoa usado como vocativo (", Pedro." / "Pedro, ..."); a primeira resposta usa direto, porque a
+   abertura logo acima já chamou pelo nome. Antes ficava no index.ts com uma barra a mais e nunca casava (23/10/2026). */
+export function semONome(texto: string, nome?: string | null) {
+  const n = (nome ?? "").replace(/[^\p{L}]/gu, "");
+  if (n.length < 2) return texto;
+  const t = texto.replace(new RegExp(`,\\s*${n}(?:\\s+\\p{Lu}\\p{L}+)?(?=[,.!?:])`, "gu"), "").replace(new RegExp(`^${n}(?:\\s+\\p{Lu}\\p{L}+)?,\\s*`, "u"), "").trim();
   return t ? t[0].toUpperCase() + t.slice(1) : texto;
 }
 

@@ -214,3 +214,10 @@ Deno.test("pós-venda no primeiro contato recebe abertura curta", () => {
   assertEquals(t, "Bom dia, Jhonatan! Sou a Bia, assistente da Pedro Paulo Automóveis.");
   assertEquals(aberturaCurta("qualificado"), false);
 });
+
+import { semONome } from "./conversa.ts";
+Deno.test("primeira resposta sem o nome que a abertura já usou", () => {
+  assertEquals(semONome("Não consigo ver as fotos por aqui, Pedro. Pode me contar qual carro?", "Pedro"), "Não consigo ver as fotos por aqui. Pode me contar qual carro?");
+  assertEquals(semONome("Isso é com o consultor, Jhonatan: ele continua por aqui.", "Jhonatan"), "Isso é com o consultor: ele continua por aqui.");
+  assertEquals(semONome("Kauan, temos sim.", "Kauan"), "Temos sim.");
+});
