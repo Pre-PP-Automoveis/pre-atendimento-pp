@@ -240,3 +240,7 @@ Deno.test("comentário sobre o anúncio não chega ao cliente", () => {
 Deno.test("pergunta da triagem é para você, não para ele", () => {
   assertEquals(polimento("O Gol tem 89.490 km. Ele tem carro na troca ou pensa em financiar?"), "O Gol tem 89.490 km. Você tem carro na troca ou pensa em financiar?");
 });
+
+Deno.test("'Quer que eu fale mais sobre algum deles?' sai", () => {
+  assertEquals(polimento("Temos o Gol 2012 por R$ 34.900. Quer que eu fale mais sobre algum deles?"), "Temos o Gol 2012 por R$ 34.900.");
+});

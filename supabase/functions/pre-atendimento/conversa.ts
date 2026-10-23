@@ -222,7 +222,7 @@ export function semFrasesFeitas(texto: string, ofertaPedida = false) {
     .filter((f) => !/(esse|este|o) an[uú]ncio (é|e) (geral|institucional|da loja)|an[uú]ncio n[aã]o (fala|mostra|cita|traz)|antes de encaminhar|aguardar a resposta d|vou aguardar|instru[cç][aã]o|encaminhamento|^j[aá] (te )?aviso antes/i.test(f));
   const limpas = frases.filter((f) => !/posso (te )?ajudar (com|em) (mais|outr)|qualquer coisa,? (estou|t[ôo]) por aqui|em que (mais )?posso ajudar/i.test(f))
     /* fechamento de formulário ("Quer saber mais algum detalhe dele?"): a conversa anda sozinha, sem oferta genérica */
-    .filter((f) => !/^(voc[eê] )?(quer|gostaria de|deseja) (saber mais|mais detalhes)\b[^?]*\?$|^ficou (com )?alguma d[uú]vida\?$|^(tem|teria) mais alguma (d[uú]vida|pergunta)\b[^?]*\?$/i.test(f.trim()))
+    .filter((f) => !/^(voc[eê] )?(quer|gostaria de|deseja) (saber mais|mais detalhes)\b[^?]*\?$|^quer que eu (te )?(fale|conte|passe) mais\b[^?]*\?$|^ficou (com )?alguma d[uú]vida\?$|^(tem|teria) mais alguma (d[uú]vida|pergunta)\b[^?]*\?$/i.test(f.trim()))
     /* pedir licença para passar ao consultor: o roteiro manda passar, não perguntar */
     /* exceção: perguntada se é robô, a Bia oferece o consultor, e a oferta não pode sumir */
     .filter((f) => ofertaPedida || !/quer que eu (j[aá] )?(te )?(encaminhe|passe|coloque)|prefere que eu (te )?(encaminhe|passe|coloque)|posso (j[aá] )?te (colocar em contato|passar para|passar pr[oa])/i.test(f))
