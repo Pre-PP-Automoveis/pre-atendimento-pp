@@ -236,3 +236,7 @@ Deno.test("nome do perfil em maiúsculas também sai quando repetido", () => {
 Deno.test("comentário sobre o anúncio não chega ao cliente", () => {
   assertEquals(polimento("Esse anúncio é geral da loja, não fala de um carro específico. Qual carro você procura?"), "Qual carro você procura?");
 });
+
+Deno.test("pergunta da triagem é para você, não para ele", () => {
+  assertEquals(polimento("O Gol tem 89.490 km. Ele tem carro na troca ou pensa em financiar?"), "O Gol tem 89.490 km. Você tem carro na troca ou pensa em financiar?");
+});

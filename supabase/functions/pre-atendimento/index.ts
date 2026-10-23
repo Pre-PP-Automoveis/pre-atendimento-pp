@@ -272,12 +272,15 @@ async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null
   const { error: dup } = await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "lead", tipo: msg.type, texto, wa_id: msg.id });
   if (dup) { if (dup.code === "23505") return; throw dup; } // reentrega da Meta: já tratada
   await admin.from("pa_conversas").update({ ultima_msg_em: new Date().toISOString(), ...(nomePerfil ? { lead_nome: nomePerfil } : {}) }).eq("id", conversa.id);
-  await marcarLida(loja.phone_number_id, msg.id);
 
   /* com o time já escrevendo, o robô fica quieto: a conversa é deles. Com número separado, o time fala por outro número:
      se o cliente voltar a escrever aqui, o robô lembra por onde o atendimento continua (no máximo a cada 30 minutos) */
   if (conversa.primeira_acao_humana_em) return loja.numero_atendimento ? lembrarLead(loja, conversa) : undefined;
   if (conversa.estado === "encaminhada" || conversa.estado === "fila") return lembrarLead(loja, conversa);
+  /* só marca como lida a mensagem que a Bia vai responder: depois de passar ao consultor, a conversa fica com o aviso de
+     não lida no aplicativo, que é por onde o time enxerga quem está esperando (primeiro dia no ar, 23/10/2026: três
+     clientes escreveram depois da passagem e ninguém viu) */
+  await marcarLida(loja.phone_number_id, msg.id);
 
   /* espera o lead terminar de digitar; se chegou mensagem mais nova, quem responde é o processamento dela */
   await dormir(ESPERA_MS);
@@ -438,7 +441,7 @@ async function tirarDoRobo() {
     for (const conversa of abertas ?? []) {
       if (!passouDoRobo(conversa, loja.prazo_robo_min ?? 15)) continue;
       const r = await encaminhar(loja, conversa, {
-        motivo: "tempo_esgotado", consultor: "nenhum", veiculo: conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
+        motivo: "tempo_esgotado", consultor: "nenhum", veiculo: conversa.origem === "Tráfego Pago" ? "anúncio pago (ver na conversa)" : conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
         troca: "ver na conversa", pagamento: "ver na conversa", visita: "ver na conversa", pendencias: "ver na conversa",
         resumo: `Triagem não terminou em ${loja.prazo_robo_min ?? 15} min; a conversa inteira está no WhatsApp da loja.`,
       }).catch((err) => ({ ok: false, erro: String(err) }) as Resultado);
@@ -725,7 +728,7 @@ async function agirPainel(sessao: string, pedido: Linha): Promise<Resposta> {
     await admin.from("pa_conversas").update({
       estado: "encaminhada", vendedor_id: para.id, fixado_por: "gerente", transferido_em: agora, avisado_em: agora, escalado_em: null,
       encaminhado_em: conversa.encaminhado_em ?? agora, tentativas: tentativas.includes(para.id) ? tentativas : [...tentativas, para.id],
-      resumo: conversa.resumo ?? { motivo: "passado_pelo_gerente", consultor: "nenhum", veiculo: conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
+      resumo: conversa.resumo ?? { motivo: "passado_pelo_gerente", consultor: "nenhum", veiculo: conversa.origem === "Tráfego Pago" ? "anúncio pago (ver na conversa)" : conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
         troca: "ver na conversa", pagamento: "ver na conversa", visita: "ver na conversa", pendencias: "ver na conversa", resumo: "Passado pelo gerente; a conversa está no WhatsApp da loja." },
     }).eq("id", conversa.id);
     await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema",

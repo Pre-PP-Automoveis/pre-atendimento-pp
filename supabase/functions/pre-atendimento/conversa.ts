@@ -240,6 +240,8 @@ export function semFrasesFeitas(texto: string, ofertaPedida = false) {
     /* "ficha" é a palavra de bastidor; para o cliente a informação simplesmente está ou não está com a Bia */
     .map((f) => f.replace(/n[aã]o (est[aá]|consta|aparece) na (minha )?ficha/gi, "eu não tenho aqui")
       .replace(/est[aá] certo na (minha )?ficha/gi, "posso confirmar").replace(/\s+(aqui )?(na (minha )?|n(ess|est)a )ficha\b/gi, ""))
+    /* "Ele tem carro na troca?" falando com a própria pessoa (visto em lead real, 23/10/2026) */
+    .map((f) => /\?$/.test(f.trim()) && /troca|pagar|financ|vista/i.test(f) ? f.replace(/^Ele (tem|pensa|prefere|quer|vai)\b/, "Você $1") : f)
     /* "Perfeito, Carla." sozinho cai; "Show, Marcos, já anotei" vira "Marcos, já anotei" */
     .map((f, i) => {
       if (i > 0 || !ABERTURA_FEITA.test(f)) return f;
