@@ -11,7 +11,7 @@ import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHo
 import { foneLegivel, passouDoRobo, pessoaPedida, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
-import { abertura, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { abertura, aberturaCurta, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 import { equipeDoPainel, painelAdmin, painelConsultor, painelGerente } from "./painel.ts";
 import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
@@ -345,6 +345,7 @@ async function responder(loja: Linha, conversaId: string) {
   let textos: string[] = [];
   let custo = 0;
   let encaminhado: Resultado | null = null;
+  let motivo: string | null = null;
   try {
     const turno = await rodarTurno({
       cliente: anthropic(), modelo: loja.modelo, sistema: promptSistema({ ...loja, equipe } as Loja, veiculos), messages,
@@ -358,7 +359,7 @@ async function responder(loja: Linha, conversaId: string) {
       },
     });
     if (turno.interrompido) return;
-    textos = turno.textos; custo = turno.custo; encaminhado = turno.encaminhado;
+    textos = turno.textos; custo = turno.custo; encaminhado = turno.encaminhado; motivo = turno.encaminhamento?.motivo ?? null;
   } catch (e) {
     /* contingência do item 4.6: o lead não fica sem resposta e a conversa vai para uma pessoa */
     await registrarErro("claude", e, loja.id, conversaId);
@@ -384,10 +385,10 @@ async function responder(loja: Linha, conversaId: string) {
     const ultimaDoLead = [...(historico ?? [])].reverse().find((m) => m.autor === "lead")?.texto ?? "";
     /* a abertura já chama a pessoa pelo nome: o nome sai da resposta desta primeira mensagem */
     const nome = primeiroNome(conversa.lead_nome);
-    const semNome = nome ? texto.replace(new RegExp(`,?\\s*${nome.replace(/[^\\p{L}]/gu, "")}(?=[,.!?])`, "gu"), "") : texto;
+    const semNome = nome ? texto.replace(new RegExp(`,?\\s*${nome.replace(/[^\\p{L}]/gu, "")}(?=[,.!?:])`, "gu"), "") : texto;
     texto = semAvisoRepetido(semNome, ultimaDoLead);
     /* a apresentação vai num balão e a resposta em outro, como uma pessoa escreveria no WhatsApp */
-    const oi = loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: conversa.lead_nome });
+    const oi = loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: conversa.lead_nome, curta: aberturaCurta(motivo) });
     await enviarTexto(loja.phone_number_id, conversa.lead_wa, oi);
     await admin.from("pa_mensagens").insert({ conversa_id: conversaId, autor: "robo", texto: oi });
   }

@@ -2,7 +2,7 @@
 // O encaminhamento é de mentira, mas segue a regra real do horário: loja aberta avisa, loja fechada vai para a fila.
 // Serve para calibrar o robô antes de ligar a loja e depois de cada ajuste de prompt.
 import type Anthropic from "npm:@anthropic-ai/sdk";
-import { abertura, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
+import { abertura, aberturaCurta, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
 import { pessoaPedida } from "./rodizio.ts";
 import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 
@@ -61,7 +61,7 @@ export async function simular(
         /* o histórico aqui já tem a mensagem do lead deste turno, igual ao atendimento real */
         let texto = polir((t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n"), historico, !!t.encaminhado, (c.lead_nome ?? "").trim().split(/\s+/)[0] || null);
         if (!texto && t.encaminhado) texto = despedidaPadrao(t.encaminhado);
-        if (i === 0 && texto) texto = `${loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: c.lead_nome, quando })}\n\n${semAvisoRepetido(texto, msg)}`;
+        if (i === 0 && texto) texto = `${loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: c.lead_nome, quando, curta: aberturaCurta(t.encaminhamento?.motivo) })}\n\n${semAvisoRepetido(texto, msg)}`;
         historico.push({ autor: "robo", texto: texto || "[o robô não respondeu]", bruto: t.textos.join("\n\n") });
         if (t.encaminhamento) { encaminhamento = { ...t.encaminhamento, visita: visitaReal(t.encaminhamento.visita, historico, loja.endereco) }; break; }
       } catch (e) {

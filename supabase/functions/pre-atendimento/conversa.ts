@@ -123,7 +123,9 @@ export async function rodarTurno(p: {
    assistente, sem falar em robô ou assistente virtual (Kauan, 07/10/2026), e diz que dá para pedir um consultor. Enxugada
    em 21/10/2026 depois do primeiro teste real: saiu a frase dos dados, que pesava no primeiro balão. Cumprimento pela hora de São Paulo e pelo primeiro nome do perfil, se parecer nome.
    Atenção: o item 8.5 do contrato pede dizer na primeira mensagem que a conversa é automatizada; o Kauan decidiu tirar. */
-export function abertura(p: { loja: string; assistente?: string | null; nomeDoLead?: string | null; quando?: Date }) {
+/* curta: o primeiro contato já foi para uma pessoa (pós-venda, documento, pediu alguém do time). "Encontrar o carro ideal"
+   para quem já comprou soa errado (primeiro atendimento real, 23/10/2026: cliente perguntando de boleto e documento). */
+export function abertura(p: { loja: string; assistente?: string | null; nomeDoLead?: string | null; quando?: Date; curta?: boolean }) {
   const hora = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", hour: "2-digit", hourCycle: "h23" }).format(p.quando ?? new Date()));
   const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
   const primeiro = (p.nomeDoLead ?? "").trim().split(/\s+/)[0] ?? "";
@@ -131,6 +133,7 @@ export function abertura(p: { loja: string; assistente?: string | null; nomeDoLe
   const empresa = /\d|\b(ltda|me|eireli|auto|autos|pe[cç]as|ve[ií]culos|loja|motors?|multimarcas|oficial|store|com[eé]rcio|servi[cç]os|distribuidora)\b/i.test(p.nomeDoLead ?? "");
   const nome = !empresa && /^[A-Za-zÀ-ÿ]{2,15}$/.test(primeiro) ? primeiro[0].toUpperCase() + primeiro.slice(1).toLowerCase() : "";
   const quem = p.assistente ? `Sou a ${p.assistente}, assistente da ${p.loja}` : `Sou a assistente da ${p.loja}`;
+  if (p.curta) return `${saudacao}${nome ? `, ${nome}` : ""}! ${quem}.`;
   return `${saudacao}${nome ? `, ${nome}` : ""}! ${quem}, e vou iniciar o seu atendimento para encontrar o carro ideal para você. ` +
     "Se preferir falar direto com um consultor, é só me avisar.";
 }
@@ -297,6 +300,9 @@ export function semCorNaoPedida(texto: string, historico: Msg[]) {
 }
 
 /* nome da pessoa no máximo uma vez a cada três mensagens: "Dá sim, Kauan" em toda resposta soa script */
+/* abertura curta quando o primeiro turno já passou a conversa para uma pessoa sem triagem */
+export const aberturaCurta = (motivo?: string | null) => motivo === "fora_do_escopo" || motivo === "pediu_pessoa";
+
 export function semNomeRepetido(texto: string, historico: Msg[], nome?: string | null) {
   const n = (nome ?? "").replace(/[^\p{L}]/gu, "");
   if (n.length < 2) return texto;

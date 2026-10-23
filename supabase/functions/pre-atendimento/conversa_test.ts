@@ -207,3 +207,10 @@ Deno.test("perguntada se é robô, a oferta do consultor fica; 'posso ajudar com
   assertEquals(polirTudo(t, [{ autor: "lead", texto: "isso é robô?" }], false), t);
   assertEquals(polimento("O câmbio o consultor confirma. Posso ajudar com mais algum carro?"), "O câmbio o consultor confirma.");
 });
+
+import { aberturaCurta } from "./conversa.ts";
+Deno.test("pós-venda no primeiro contato recebe abertura curta", () => {
+  const t = abertura({ loja: "Pedro Paulo Automóveis", assistente: "Bia", nomeDoLead: "Jhonatan", quando: new Date("2026-10-23T10:05:00-03:00"), curta: aberturaCurta("fora_do_escopo") });
+  assertEquals(t, "Bom dia, Jhonatan! Sou a Bia, assistente da Pedro Paulo Automóveis.");
+  assertEquals(aberturaCurta("qualificado"), false);
+});
