@@ -232,3 +232,7 @@ Deno.test("nome do perfil em maiúsculas também sai quando repetido", () => {
   const h = [{ autor: "robo", texto: "Boa tarde, Vitor! Sou a Bia." }, { autor: "lead", texto: "tudo bem?" }];
   assertEquals(semNomeRepetido("Tudo bem, Vitor! Temos dois Gol.", h, "VITOR DE PAULA"), "Tudo bem! Temos dois Gol.");
 });
+
+Deno.test("comentário sobre o anúncio não chega ao cliente", () => {
+  assertEquals(polimento("Esse anúncio é geral da loja, não fala de um carro específico. Qual carro você procura?"), "Qual carro você procura?");
+});

@@ -193,7 +193,7 @@ export function contextoTurno(p: {
     : p.ficha
     ? `carro do anúncio, com ficha: ${p.ficha.titulo} [${p.ficha.id.slice(0, 8)}]`
     : p.veiculoAnuncio && p.canal === "Tráfego Pago"
-      ? `veio por anúncio pago da loja, com este texto: "${p.veiculoAnuncio}". Descubra pelo texto de que carro(s) o anúncio fala e procure na ficha (mesmo modelo, ano e cor): achando, fale desses carros com os dados da ficha, sem pedir para a pessoa repetir. Se o texto não fala de um carro, pergunte o que ela procura. Não diga que o carro do anúncio é o consultor quem apresenta`
+      ? `veio por anúncio pago da loja, com este texto: "${p.veiculoAnuncio}". Descubra pelo texto de que carro(s) o anúncio fala e procure na ficha (mesmo modelo, ano e cor): achando, fale desses carros com os dados da ficha, sem pedir para a pessoa repetir. Se o texto não fala de um carro, não comente o anúncio ("esse anúncio é geral"): só pergunte, com naturalidade, qual carro ela procura. Nunca repita promessas do anúncio (garantia, perícia, "melhor avaliação", "preço justo"): valem as regras da loja. Não diga que o carro do anúncio é o consultor quem apresenta`
     : p.veiculoAnuncio
       ? `carro do anúncio, pelo link: ${p.veiculoAnuncio} (sem ficha cadastrada: não confirme disponibilidade nem nenhum dado dele)`
       : "carro não identificado";

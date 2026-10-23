@@ -219,7 +219,7 @@ const ABERTURA_FEITA = /^(show|perfeito|[oó]timo|legal|entendido)\b[,!.]?\s*/i;
 export function semFrasesFeitas(texto: string, ofertaPedida = false) {
   /* bastidor nunca chega ao cliente, nem quando é o que sobra: o resto é acabamento e volta se apagar tudo */
   const frases = texto.split(/(?<=[.!?])\s+/)
-    .filter((f) => !/antes de encaminhar|aguardar a resposta d|vou aguardar|instru[cç][aã]o|encaminhamento|^j[aá] (te )?aviso antes/i.test(f));
+    .filter((f) => !/(esse|este|o) an[uú]ncio (é|e) (geral|institucional|da loja)|an[uú]ncio n[aã]o (fala|mostra|cita|traz)|antes de encaminhar|aguardar a resposta d|vou aguardar|instru[cç][aã]o|encaminhamento|^j[aá] (te )?aviso antes/i.test(f));
   const limpas = frases.filter((f) => !/posso (te )?ajudar (com|em) (mais|outr)|qualquer coisa,? (estou|t[ôo]) por aqui|em que (mais )?posso ajudar/i.test(f))
     /* fechamento de formulário ("Quer saber mais algum detalhe dele?"): a conversa anda sozinha, sem oferta genérica */
     .filter((f) => !/^(voc[eê] )?(quer|gostaria de|deseja) (saber mais|mais detalhes)\b[^?]*\?$|^ficou (com )?alguma d[uú]vida\?$|^(tem|teria) mais alguma (d[uú]vida|pergunta)\b[^?]*\?$/i.test(f.trim()))
