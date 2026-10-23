@@ -213,15 +213,16 @@ export function exigirConvite(historico: Msg[], endereco: string | null) {
 
 /* frases-padrão de atendimento que soam robóticas: saem, se sobrar texto */
 const ABERTURA_FEITA = /^(show|perfeito|[oó]timo|legal|entendido)\b[,!.]?\s*/i;
-export function semFrasesFeitas(texto: string) {
+export function semFrasesFeitas(texto: string, ofertaPedida = false) {
   /* bastidor nunca chega ao cliente, nem quando é o que sobra: o resto é acabamento e volta se apagar tudo */
   const frases = texto.split(/(?<=[.!?])\s+/)
     .filter((f) => !/antes de encaminhar|aguardar a resposta d|vou aguardar|instru[cç][aã]o|encaminhamento|^j[aá] (te )?aviso antes/i.test(f));
-  const limpas = frases.filter((f) => !/posso te ajudar com (mais|outras?)|posso ajudar em mais|qualquer coisa,? (estou|t[ôo]) por aqui|em que (mais )?posso ajudar/i.test(f))
+  const limpas = frases.filter((f) => !/posso (te )?ajudar (com|em) (mais|outr)|qualquer coisa,? (estou|t[ôo]) por aqui|em que (mais )?posso ajudar/i.test(f))
     /* fechamento de formulário ("Quer saber mais algum detalhe dele?"): a conversa anda sozinha, sem oferta genérica */
     .filter((f) => !/^(voc[eê] )?(quer|gostaria de|deseja) (saber mais|mais detalhes)\b[^?]*\?$|^ficou (com )?alguma d[uú]vida\?$|^(tem|teria) mais alguma (d[uú]vida|pergunta)\b[^?]*\?$/i.test(f.trim()))
     /* pedir licença para passar ao consultor: o roteiro manda passar, não perguntar */
-    .filter((f) => !/quer que eu (j[aá] )?(te )?(encaminhe|passe|coloque)|prefere que eu (te )?(encaminhe|passe|coloque)|posso (j[aá] )?te (colocar em contato|passar para|passar pr[oa])/i.test(f))
+    /* exceção: perguntada se é robô, a Bia oferece o consultor, e a oferta não pode sumir */
+    .filter((f) => ofertaPedida || !/quer que eu (j[aá] )?(te )?(encaminhe|passe|coloque)|prefere que eu (te )?(encaminhe|passe|coloque)|posso (j[aá] )?te (colocar em contato|passar para|passar pr[oa])/i.test(f))
     .filter((f) => !/^at[ée] j[aá]!?$/i.test(f.trim()))
     /* convite de loja com cara de balcão de bairro */
     .map((f) => f.replace(/,?\s*[ée] s[óo] (aparecer|passar) (por l[aá]|aqui|na loja)/i, ""))
@@ -274,8 +275,9 @@ export function semMencaoDeRobo(texto: string, historico: Msg[]) {
   const ultimaDoLead = [...historico].reverse().find((m) => m.autor === "lead")?.texto ?? "";
   if (PERGUNTOU_SE_E_ROBO.test(ultimaDoLead.replace(/\[[^\]]*\]/g, ""))) return texto;
   const frases = texto.split(/(?<=[.!?])\s+/);
-  /* fronteira com \p{L}: o \b do JavaScript não enxerga "ô" como letra e deixava "robô" passar */
-  const limpas = frases.filter((f) => !/(?<!\p{L})rob[oô](?!\p{L})|intelig[eê]ncia artificial|(?<!\p{L})IA(?!\p{L})|assistente virtual|autom[aá]tic[oa]|(?<!\p{L})sistema(?!\p{L})/u.test(f));
+  /* fronteira com \p{L}: o \b do JavaScript não enxerga "ô" como letra e deixava "robô" passar.
+     "Automático" só conta falando do atendimento: "Spin automática" é o câmbio (cortava a frase do carro, 23/10/2026) */
+  const limpas = frases.filter((f) => !/(?<!\p{L})rob[oô](?!\p{L})|intelig[eê]ncia artificial|(?<!\p{L})IA(?!\p{L})|assistente virtual|([Aa]tendimento|[Tt]riagem|[Rr]esposta|[Mm]ensagem|forma|[Ss]ou|[ÉéEe]|feit[oa])\s+(\p{L}+\s+)?autom[aá]tic[oa]|(?<!\p{L})sistema(?!\p{L})/u.test(f));
   return (limpas.length ? limpas : frases).join(" ").trim();
 }
 
@@ -305,8 +307,12 @@ export function semNomeRepetido(texto: string, historico: Msg[], nome?: string |
 }
 
 /* tudo o que passa pelo texto do robô antes de sair, igual no atendimento real e no simulador */
-export const polir = (texto: string, historico: Msg[], encaminhado: boolean, nome?: string | null) =>
-  semNomeRepetido(semCorNaoPedida(semMencaoDeRobo(semPerguntaRepetida(semPromessaAntesDaHora(semFrasesFeitas(semTravessao(texto)), encaminhado), historico), historico), historico), historico, nome);
+export const polir = (texto: string, historico: Msg[], encaminhado: boolean, nome?: string | null) => {
+  const ultimaDoLead = [...historico].reverse().find((m) => m.autor === "lead")?.texto ?? "";
+  const perguntouSeERobo = PERGUNTOU_SE_E_ROBO.test(ultimaDoLead.replace(/\[[^\]]*\]/g, ""));
+  return semNomeRepetido(semCorNaoPedida(semMencaoDeRobo(semPerguntaRepetida(semPromessaAntesDaHora(
+    semFrasesFeitas(semTravessao(texto), perguntouSeERobo), encaminhado), historico), historico), historico), historico, nome);
+};
 
 /* despedida de reserva, quando o modelo encaminhou e não escreveu nada */
 export const despedidaPadrao = (r: Resultado) => {

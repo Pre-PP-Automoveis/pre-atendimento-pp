@@ -192,3 +192,18 @@ Deno.test("à vista sem opinião, ficha fora da boca da Bia, convite sem 'aparec
   assertEquals(polimento("O Cruze LT está sem preço informado nessa ficha, então o consultor confirma."), "O Cruze LT está sem preço informado, então o consultor confirma.");
   assertEquals(polimento("Que tal aparecer para ver o Onix de perto?"), "Que tal vir para ver o Onix de perto?");
 });
+
+Deno.test("câmbio automático não é menção a robô", () => {
+  const h = [{ autor: "lead", texto: "vocês tem spin?" }];
+  const t = "Temos sim, a Spin 1.8L AT ACT 2017/2018, automática, com 170.000 km, por R$ 61.900.";
+  assertEquals(semMencaoDeRobo(t, h), t);
+  assertEquals(semMencaoDeRobo("Este atendimento é automático. A Spin está por R$ 61.900.", h), "A Spin está por R$ 61.900.");
+  assertEquals(semMencaoDeRobo("Faço a triagem de forma automática. A Spin está por R$ 61.900.", h), "A Spin está por R$ 61.900.");
+});
+
+import { polir as polirTudo } from "./conversa.ts";
+Deno.test("perguntada se é robô, a oferta do consultor fica; 'posso ajudar com mais' sai", () => {
+  const t = "Isso mesmo, eu faço a triagem inicial de forma automática. Se preferir, posso te passar para um consultor agora.";
+  assertEquals(polirTudo(t, [{ autor: "lead", texto: "isso é robô?" }], false), t);
+  assertEquals(polimento("O câmbio o consultor confirma. Posso ajudar com mais algum carro?"), "O câmbio o consultor confirma.");
+});

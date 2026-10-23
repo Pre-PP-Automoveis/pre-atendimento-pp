@@ -215,6 +215,8 @@ function textoDe(msg: Linha): string {
 /* Alguém do time escreveu ao lead pelo WhatsApp Business. É a primeira ação humana, e o robô sai da conversa. */
 async function tratarEco(loja: Linha, eco: Linha) {
   if (eco.type === "revoke" || eco.type === "edit") return; // apagar ou editar não é atender
+  /* quem o time atende pelo aplicativo fica registrado: se voltar a escrever, a Bia não se apresenta (ver tratarMensagem) */
+  await admin.from("pa_contatos_do_time").upsert({ loja_id: loja.id, wa: eco.to, ultima_em: new Date(Number(eco.timestamp) * 1000 || Date.now()).toISOString() });
   const { data: conversa } = await admin.from("pa_conversas").select("*").eq("loja_id", loja.id).eq("lead_wa", eco.to).neq("estado", "encerrada").maybeSingle();
   if (!conversa) return; // conversa que o time começou por conta própria: não é lead do pré-atendimento
   /* eco com horário anterior ao início do atendimento é mensagem antiga (sincronização do histórico da coexistência
@@ -247,6 +249,14 @@ async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null
   /* contato que o gerente marcou como "não é lead" no painel: o robô não responde */
   const { data: ignorado } = await admin.from("pa_ignorados").select("wa").eq("loja_id", loja.id).eq("wa", msg.from).maybeSingle();
   if (ignorado) return;
+
+  /* cliente que o time já atende pelo aplicativo (respondeu nos últimos 30 dias) e não tem atendimento aberto com a Bia:
+     a conversa é de quem já fala com ele, e a Bia não se apresenta no meio de uma negociação */
+  const { data: aberta } = await admin.from("pa_conversas").select("id").eq("loja_id", loja.id).eq("lead_wa", msg.from).neq("estado", "encerrada").maybeSingle();
+  if (!aberta) {
+    const { data: doTime } = await admin.from("pa_contatos_do_time").select("ultima_em").eq("loja_id", loja.id).eq("wa", msg.from).maybeSingle();
+    if (doTime && Date.now() - new Date(doTime.ultima_em).getTime() < REABRE_COM_HUMANO_MS) return;
+  }
 
   const texto = textoDe(msg);
   const conversa = await abrirConversa(loja, msg, texto, nomePerfil);

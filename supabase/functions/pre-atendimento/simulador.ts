@@ -17,7 +17,7 @@ export type Cenario = {
   mensagens: string[];          // uma entrada por turno do lead (várias linhas = várias mensagens seguidas)
 };
 
-type Linha = { autor: "lead" | "robo"; texto: string };
+type Linha = { autor: "lead" | "robo"; texto: string; bruto?: string /* o que o modelo escreveu antes do polimento, para achar filtro que corta demais */ };
 
 export async function simular(
   cliente: Anthropic,
@@ -62,7 +62,7 @@ export async function simular(
         let texto = polir((t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n"), historico, !!t.encaminhado, (c.lead_nome ?? "").trim().split(/\s+/)[0] || null);
         if (!texto && t.encaminhado) texto = despedidaPadrao(t.encaminhado);
         if (i === 0 && texto) texto = `${loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: c.lead_nome, quando })}\n\n${semAvisoRepetido(texto, msg)}`;
-        historico.push({ autor: "robo", texto: texto || "[o robô não respondeu]" });
+        historico.push({ autor: "robo", texto: texto || "[o robô não respondeu]", bruto: t.textos.join("\n\n") });
         if (t.encaminhamento) { encaminhamento = { ...t.encaminhamento, visita: visitaReal(t.encaminhamento.visita, historico, loja.endereco) }; break; }
       } catch (e) {
         erro = String((e as Error)?.message ?? e);

@@ -16,7 +16,7 @@ import csv, json, os, re, sys, urllib.request
 PROJETO = "https://qdzuwnqejtjbtcysteip.supabase.co"
 LOJA = "pp-automoveis"
 MARCAS_SECAO = {"VOLKS": "Volkswagen", "FORD": "Ford", "GM": "Chevrolet", "FIAT": "Fiat", "IMPORTADOS": None}
-MARCAS = {"NISSAN": "Nissan", "HONDA": "Honda", "HYUNDAI": "Hyundai", "JEEP": "Jeep", "PEUGEOT": "Peugeot",
+MARCAS = {"NISSAN": "Nissan", "HONDA": "Honda", "HYUNDAI": "Hyundai", "HYNDAI": "Hyundai", "JEEP": "Jeep", "PEUGEOT": "Peugeot",
           "TOYOTA": "Toyota", "BMW": "BMW", "VOLVO": "Volvo", "RENAULT": "Renault", "CITROEN": "Citroën",
           "MITSUBISHI": "Mitsubishi", "KIA": "Kia", "CHERY": "Chery", "CAOA CHERY": "Caoa Chery"}
 
