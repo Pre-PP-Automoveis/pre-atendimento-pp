@@ -65,6 +65,13 @@ const bater = (chave: string, detalhe: unknown = null) =>
   admin.from("pa_saude").upsert({ chave, em: new Date().toISOString(), detalhe }).then(() => {}, () => {});
 
 /* no Brasil, o WhatsApp às vezes manda o celular sem o 9 da frente (551148779809 x 5511948779809): compara os dois */
+/* o mesmo celular brasileiro com e sem o 9 da frente: o WhatsApp entrega um ou outro conforme a idade da conta */
+const comESem9 = (n: string) => {
+  const d = n.replace(/\D/g, "");
+  const sem = d.replace(/^(55\d{2})9(\d{8})$/, "$1$2");
+  const com = sem.replace(/^(55\d{2})(\d{8})$/, "$19$2");
+  return [...new Set([d, sem, com])];
+};
 const mesmoCelular = (a: string, b: string) => {
   const sem9 = (n: string) => n.replace(/\D/g, "").replace(/^(55\d{2})9(\d{8})$/, "$1$2");
   return sem9(a) === sem9(b);
@@ -242,13 +249,14 @@ async function tratarEco(loja: Linha, eco: Linha) {
 
 async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null) {
   /* vendedor escrevendo do celular pessoal para o número da loja: não é lead */
-  const { data: vendedor } = await admin.from("pa_vendedores").select("id").eq("loja_id", loja.id).eq("whatsapp", msg.from).maybeSingle();
-  if (vendedor) return;
+  const formas = comESem9(msg.from);
+  const { data: vendedor } = await admin.from("pa_vendedores").select("id").eq("loja_id", loja.id).in("whatsapp", formas).limit(1);
+  if (vendedor?.length) return;
   /* modo de teste: com a loja desligada, só os números da lista falam com a Bia; o resto fica com o time */
   if (!loja.ativo && !(loja.numeros_teste ?? []).some((n: string) => mesmoCelular(n, msg.from))) return;
   /* contato que o gerente marcou como "não é lead" no painel: o robô não responde */
-  const { data: ignorado } = await admin.from("pa_ignorados").select("wa").eq("loja_id", loja.id).eq("wa", msg.from).maybeSingle();
-  if (ignorado) return;
+  const { data: ignorado } = await admin.from("pa_ignorados").select("wa").eq("loja_id", loja.id).in("wa", formas).limit(1);
+  if (ignorado?.length) return;
 
   /* cliente que o time já atende pelo aplicativo (respondeu nos últimos 30 dias) e não tem atendimento aberto com a Bia:
      a conversa é de quem já fala com ele, e a Bia não se apresenta no meio de uma negociação */
