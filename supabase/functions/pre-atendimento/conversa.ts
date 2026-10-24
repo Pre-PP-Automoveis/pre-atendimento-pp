@@ -33,11 +33,16 @@ export const ENCAMINHAR: Anthropic.Tool = {
 
 export type Encaminhamento = { motivo: string; consultor?: string; veiculo: string; troca: string; pagamento: string; visita: string; pendencias: string; resumo: string };
 export type Resultado = { ok: boolean; vendedor: string | null; nomeado?: boolean; fila?: boolean; abre?: string | null; erro?: string;
+  atualizado?: boolean /* a conversa já estava com o consultor: só o resumo dele foi atualizado */;
   onde?: string /* por onde o consultor continua: "por aqui mesmo" ou "pelo WhatsApp da loja, (11) ..." */ };
 
 /* com o número da Bia separado do número do time, o consultor chama o cliente pelo WhatsApp da loja */
 export const ondeContinua = (numeroAtendimento?: string | null) =>
   numeroAtendimento ? `pelo WhatsApp da loja, ${numeroAtendimento}` : "por aqui mesmo";
+
+/* a conversa já foi passada ao consultor e ninguém do time respondeu: a Bia segue ajudando */
+export const notaDepoisDaPassagem = (fila: boolean) =>
+  `A conversa já foi passada a um consultor, que ainda não respondeu${fila ? " (a loja está fechada; ele continua na abertura)" : ""}. Continue ajudando a pessoa: responda o que ela perguntar com a ficha e complete a triagem que faltar (carro, troca, pagamento, convite com o endereço), sem repetir o que já disse e sem nova despedida. Se ela trouxer informação nova (carro de interesse, troca, pagamento, quando vem), chame encaminhar_ao_vendedor para atualizar o resumo do consultor. Não diga que o consultor "já vai responder" em toda mensagem.`;
 
 /* lead vira user, robô vira assistant; mensagens seguidas do mesmo lado viram um turno só.
    O contexto do momento (hora, origem, carro) vai junto da última mensagem do lead. */
@@ -57,7 +62,9 @@ export function montarMensagens(historico: { autor: string; texto: string }[], c
 }
 
 const resultadoParaModelo = (r: Resultado) =>
-  r.nomeado && r.vendedor
+  r.atualizado
+    ? `O resumo do consultor foi atualizado com o que a pessoa disse. Responda a pessoa normalmente, sem nova despedida e sem repetir que ${r.fila ? `o consultor continua quando a loja abrir, ${r.abre ?? "no próximo horário"}` : "o consultor continua em instantes"} se já disse isso.`
+    : r.nomeado && r.vendedor
     ? `${r.vendedor} recebeu o resumo e continua a conversa ${r.onde ?? ondeContinua()}, ${r.fila ? `quando a loja abrir, ${r.abre ?? "no próximo horário de funcionamento"}` : "em instantes"}. Escreva só a despedida, dizendo que é ${r.vendedor} quem continua.`
     : r.fila
     ? `A loja está fechada. O atendimento ficou anotado e um consultor continua a conversa ${r.onde ?? ondeContinua()} quando a loja abrir, ${r.abre ?? "no próximo horário de funcionamento"}. Diga isso ao lead e despeça-se.`
@@ -131,7 +138,8 @@ export function abertura(p: { loja: string; assistente?: string | null; nomeDoLe
   const primeiro = (p.nomeDoLead ?? "").trim().split(/\s+/)[0] ?? "";
   /* perfil com número ou com cara de empresa ("AUTO PEÇAS 123", "Loja do Zé") não vira nome de gente */
   const empresa = /\d|\b(ltda|me|eireli|auto|autos|pe[cç]as|ve[ií]culos|loja|motors?|multimarcas|oficial|store|com[eé]rcio|servi[cç]os|distribuidora)\b/i.test(p.nomeDoLead ?? "");
-  const nome = !empresa && /^[A-Za-zÀ-ÿ]{2,15}$/.test(primeiro) ? primeiro[0].toUpperCase() + primeiro.slice(1).toLowerCase() : "";
+  /* "JRS", "GL": iniciais em maiúscula não são nome de gente */
+  const nome = !empresa && /^[A-Za-zÀ-ÿ]{2,15}$/.test(primeiro) && !/^[A-ZÀ-Ý]{2,3}$/.test(primeiro) ? primeiro[0].toUpperCase() + primeiro.slice(1).toLowerCase() : "";
   const quem = p.assistente ? `Sou a ${p.assistente}, assistente da ${p.loja}` : `Sou a assistente da ${p.loja}`;
   if (p.curta) return `${saudacao}${nome ? `, ${nome}` : ""}! ${quem}.`;
   return `${saudacao}${nome ? `, ${nome}` : ""}! ${quem}, e vou iniciar o seu atendimento para encontrar o carro ideal para você. ` +
@@ -219,7 +227,12 @@ const ABERTURA_FEITA = /^(show|perfeito|[oó]timo|legal|entendido)\b[,!.]?\s*/i;
 export function semFrasesFeitas(texto: string, ofertaPedida = false) {
   /* bastidor nunca chega ao cliente, nem quando é o que sobra: o resto é acabamento e volta se apagar tudo */
   const frases = texto.split(/(?<=[.!?])\s+/)
-    .filter((f) => !/(esse|este|o) an[uú]ncio (é|e) (geral|institucional|da loja)|an[uú]ncio n[aã]o (fala|mostra|cita|traz)|antes de encaminhar|aguardar a resposta d|vou aguardar|instru[cç][aã]o|encaminhamento|^j[aá] (te )?aviso antes/i.test(f));
+    /* comentário sobre o anúncio: frase afirmativa sai inteira; na pergunta, sai só o trecho e fica a pergunta */
+    .map((f) => !/an[uú]ncio[^.?!]*\b(geral|institucional|n[aã]o (fala|mostra|cita|traz))/i.test(f) ? f
+      : !f.trim().endsWith("?") ? ""
+      : f.replace(/(o|esse|este) an[uú]ncio[^,.?!:]*\b(geral|institucional|n[aã]o (fala|mostra|cita|traz))[^,.?!:]*[,:]?\s*(ent[aã]o\s*)?/i, "").trim())
+    .map((f) => f ? f[0].toUpperCase() + f.slice(1) : f)
+    .filter((f) => !/^\W*$/.test(f) && !/antes de encaminhar|aguardar a resposta d|vou aguardar|instru[cç][aã]o|encaminhamento|^j[aá] (te )?aviso antes/i.test(f));
   const limpas = frases.filter((f) => !/posso (te )?ajudar (com|em) (mais|outr)|qualquer coisa,? (estou|t[ôo]) por aqui|em que (mais )?posso ajudar/i.test(f))
     /* fechamento de formulário ("Quer saber mais algum detalhe dele?"): a conversa anda sozinha, sem oferta genérica */
     .filter((f) => !/^(voc[eê] )?(quer|gostaria de|deseja) (saber mais|mais detalhes)\b[^?]*\?$|^quer que eu (te )?(fale|conte|passe) mais\b[^?]*\?$|^ficou (com )?alguma d[uú]vida\?$|^(tem|teria) mais alguma (d[uú]vida|pergunta)\b[^?]*\?$/i.test(f.trim()))
@@ -236,7 +249,7 @@ export function semFrasesFeitas(texto: string, ofertaPedida = false) {
     .filter((f) => !/\b(costumam?|geralmente|normalmente)\b|^pagando [àa] vista\b|[àa] vista (fica|facilita|ajuda)/i.test(f))
     .map((f) => f.replace(/\b(que tal|pode|s[óo]) aparecer\b/gi, "$1 vir"))
     /* oferta genérica no fim da frase ("..., se quiser saber mais alguma coisa sobre ele é só falar") */
-    .map((f) => f.replace(/,?\s*se (quiser|precisar)[^.?!]*\b(saber mais|mais detalhes|mais alguma coisa)\b[^.?!]*/i, "").replace(/^\s*[.!]$/, ""))
+    .map((f) => f.replace(/,?\s*se (quiser|precisar)[^.?!]*\b(saber mais|mais detalhes|mais alguma coisa)\b[^.?!]*/i, "").replace(/^\s*[.!?]$/, ""))
     /* "ficha" é a palavra de bastidor; para o cliente a informação simplesmente está ou não está com a Bia */
     .map((f) => f.replace(/n[aã]o (est[aá]|consta|aparece) na (minha )?ficha/gi, "eu não tenho aqui")
       .replace(/est[aá] certo na (minha )?ficha/gi, "posso confirmar").replace(/\s+(aqui )?(na (minha )?|n(ess|est)a )ficha\b/gi, ""))
@@ -250,7 +263,9 @@ export function semFrasesFeitas(texto: string, ofertaPedida = false) {
       return resto[0].toUpperCase() + resto.slice(1);
     })
     .filter(Boolean);
-  return (limpas.length ? limpas : frases).join(" ").trim();
+  const final = (limpas.length ? limpas : frases).join(" ").trim();
+  /* sobrou só pontuação (o "?" que chegou sozinho a um cliente em 24/10/2026): volta o texto original */
+  return /\p{L}/u.test(final) ? final : frases.join(" ").trim();
 }
 
 /* "um consultor pode continuar por aqui" num turno em que ninguém foi chamado é promessa que não acontece */
@@ -308,6 +323,7 @@ export const aberturaCurta = (motivo?: string | null) => motivo === "fora_do_esc
 /* "VITOR" ou "vitor" no perfil vira "Vitor", que é como a Bia escreve */
 const nomeProprio = (nome?: string | null) => {
   const n = (nome ?? "").trim().split(/\s+/)[0].replace(/[^\p{L}]/gu, "");
+  if (/^\p{Lu}{2,3}$/u.test(n)) return ""; // iniciais
   return n ? n[0].toUpperCase() + n.slice(1).toLowerCase() : "";
 };
 

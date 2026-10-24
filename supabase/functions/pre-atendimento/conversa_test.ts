@@ -244,3 +244,10 @@ Deno.test("pergunta da triagem é para você, não para ele", () => {
 Deno.test("'Quer que eu fale mais sobre algum deles?' sai", () => {
   assertEquals(polimento("Temos o Gol 2012 por R$ 34.900. Quer que eu fale mais sobre algum deles?"), "Temos o Gol 2012 por R$ 34.900.");
 });
+
+Deno.test("dia 2 no ar: '?' sozinho, comentário do anúncio no meio da frase, iniciais no perfil", () => {
+  assertEquals(polimento("Se quiser saber mais sobre ela, posso te passar mais detalhes?"), "Se quiser saber mais sobre ela, posso te passar mais detalhes?");
+  assertEquals(polimento("Não consegui ouvir o áudio, pode escrever por mensagem? O anúncio que você viu é geral da loja, então me conta: qual carro te chamou atenção?"),
+    "Não consegui ouvir o áudio, pode escrever por mensagem? Me conta: qual carro te chamou atenção?");
+  assertEquals(abertura({ loja: "PP", assistente: "Bia", nomeDoLead: "JRS", quando: new Date("2026-10-23T21:00:00-03:00"), curta: true }), "Boa noite! Sou a Bia, assistente da PP.");
+});

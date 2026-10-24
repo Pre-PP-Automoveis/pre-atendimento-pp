@@ -11,7 +11,7 @@ import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHo
 import { foneLegivel, passouDoRobo, pessoaPedida, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
-import { abertura, aberturaCurta, semONome, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { abertura, aberturaCurta, notaDepoisDaPassagem, semONome, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 import { equipeDoPainel, painelAdmin, painelConsultor, painelGerente } from "./painel.ts";
 import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
@@ -215,6 +215,7 @@ function textoDe(msg: Linha): string {
     case "document": return "[a pessoa mandou um documento, que você não consegue abrir]";
     case "location": return "[a pessoa mandou uma localização]";
     case "sticker": return "[figurinha]";
+    case "unsupported": return "[a pessoa mandou um tipo de mensagem que não aparece aqui (visualização única, enquete ou similar); peça para escrever]";
     default: return `[mensagem do tipo ${msg.type}]`;
   }
 }
@@ -249,6 +250,8 @@ async function tratarEco(loja: Linha, eco: Linha) {
 
 async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null) {
   /* vendedor escrevendo do celular pessoal para o número da loja: não é lead */
+  /* reação com emoji, edição e mensagem apagada não são uma nova fala do cliente: a Bia não responde a elas */
+  if (["reaction", "edit", "revoke"].includes(msg.type)) return;
   const formas = comESem9(msg.from);
   const { data: vendedor } = await admin.from("pa_vendedores").select("id").eq("loja_id", loja.id).in("whatsapp", formas).limit(1);
   if (vendedor?.length) return;
@@ -276,7 +279,19 @@ async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null
   /* com o time já escrevendo, o robô fica quieto: a conversa é deles. Com número separado, o time fala por outro número:
      se o cliente voltar a escrever aqui, o robô lembra por onde o atendimento continua (no máximo a cada 30 minutos) */
   if (conversa.primeira_acao_humana_em) return loja.numero_atendimento ? lembrarLead(loja, conversa) : undefined;
-  if (conversa.estado === "encaminhada" || conversa.estado === "fila") return lembrarLead(loja, conversa);
+  /* Passada ao consultor e ninguém do time respondeu ainda: a Bia segue ajudando o cliente (sem marcar como lida, para o
+     aviso de não lida continuar no aplicativo) até alguém do time escrever. Primeiro dia no ar, 23/10/2026: clientes que
+     voltaram a escrever depois da passagem ficaram horas sem resposta (Lucas: "um Onix ou um Polo, pra aplicativo"). */
+  const depoisDaPassagem = conversa.estado === "encaminhada" || conversa.estado === "fila";
+  /* quem pediu uma pessoa, ou veio por pós-venda, fornecedor, documento: a Bia não volta a conversar, só avisa */
+  if (depoisDaPassagem && ["pediu_pessoa", "fora_do_escopo", "midia"].includes(conversa.resumo?.motivo)) return lembrarLead(loja, conversa);
+  if (depoisDaPassagem) {
+    await dormir(ESPERA_MS);
+    const { data: ultima } = await admin.from("pa_mensagens").select("wa_id").eq("conversa_id", conversa.id).eq("autor", "lead")
+      .order("id", { ascending: false }).limit(1).single();
+    if (ultima?.wa_id !== msg.id) return;
+    return responder(loja, conversa.id, true);
+  }
   /* só marca como lida a mensagem que a Bia vai responder: depois de passar ao consultor, a conversa fica com o aviso de
      não lida no aplicativo, que é por onde o time enxerga quem está esperando (primeiro dia no ar, 23/10/2026: três
      clientes escreveram depois da passagem e ninguém viu) */
@@ -335,9 +350,10 @@ async function lembrarLead(loja: Linha, conversa: Linha) {
 }
 
 /* ===== a conversa com a Claude ===== */
-async function responder(loja: Linha, conversaId: string) {
+async function responder(loja: Linha, conversaId: string, depoisDaPassagem = false) {
   const { data: conversa } = await admin.from("pa_conversas").select("*").eq("id", conversaId).single();
-  if (!conversa || conversa.estado !== "robo") return;
+  if (!conversa || conversa.primeira_acao_humana_em) return;
+  if (depoisDaPassagem ? !["encaminhada", "fila"].includes(conversa.estado) : conversa.estado !== "robo") return;
   const [{ data: estoque }, { data: historico }, equipe] = await Promise.all([
     admin.from("pa_veiculos").select("*").eq("loja_id", loja.id).order("titulo"),
     admin.from("pa_mensagens").select("autor, texto").eq("conversa_id", conversaId).in("autor", ["lead", "robo"]).order("id"),
@@ -349,7 +365,8 @@ async function responder(loja: Linha, conversaId: string) {
   const messages = montarMensagens(historico ?? [], contextoTurno({
     agora: agoraSP(), horario: situacaoHorario(loja.horario ?? {}).texto, canal: conversa.origem,
     veiculoAnuncio: conversa.origem_detalhe?.veiculo_texto ?? null, ficha, primeiroTurno, nome: conversa.lead_nome,
-    notas: [...notasDaConversa(historico ?? [], loja.endereco, primeiroNome(conversa.lead_nome) || null), ...[notaDeCor(historico ?? [], veiculos)].filter((n): n is string => !!n)],
+    notas: [...notasDaConversa(historico ?? [], loja.endereco, primeiroNome(conversa.lead_nome) || null), ...[notaDeCor(historico ?? [], veiculos)].filter((n): n is string => !!n),
+      ...(depoisDaPassagem ? [notaDepoisDaPassagem(conversa.estado === "fila")] : [])],
   }));
   if (!messages) return;
 
@@ -360,8 +377,17 @@ async function responder(loja: Linha, conversaId: string) {
   try {
     const turno = await rodarTurno({
       cliente: anthropic(), modelo: loja.modelo, sistema: promptSistema({ ...loja, equipe } as Loja, veiculos), messages,
-      validar: exigirConvite(historico ?? [], loja.endereco),
+      validar: depoisDaPassagem ? undefined : exigirConvite(historico ?? [], loja.endereco),
       aoEncaminhar: async (e) => {
+        if (depoisDaPassagem) {
+          /* já está com o consultor: o encaminhamento só atualiza o resumo que ele vê no painel, sem mexer no rodízio */
+          const { data: agora } = await admin.from("pa_conversas").select("primeira_acao_humana_em").eq("id", conversaId).single();
+          if (agora?.primeira_acao_humana_em) return null;
+          await admin.from("pa_conversas").update({ resumo: { ...e, visita: visitaReal(e.visita, historico ?? [], loja.endereco) } }).eq("id", conversaId);
+          await admin.from("pa_mensagens").insert({ conversa_id: conversaId, autor: "sistema", texto: `resumo atualizado pela Bia (${e.motivo})` });
+          const h = situacaoHorario(loja.horario ?? {});
+          return { ok: true, vendedor: null, atualizado: true, fila: conversa.estado === "fila", abre: h.abre, onde: ondeContinua(loja.numero_atendimento) };
+        }
         /* o cron dos 15 minutos ou o time podem ter levado a conversa enquanto a Claude pensava */
         const { data: estadoAgora } = await admin.from("pa_conversas").select("estado").eq("id", conversaId).single();
         if (estadoAgora?.estado !== "robo") return null;
@@ -387,7 +413,7 @@ async function responder(loja: Linha, conversaId: string) {
   /* o time pode ter entrado pelo aplicativo enquanto a Claude pensava: aí a vez é deles, e o robô não fala por cima */
   const { data: agoraConversa } = await admin.from("pa_conversas").select("estado, primeira_acao_humana_em").eq("id", conversaId).single();
   if (agoraConversa?.primeira_acao_humana_em) return;
-  if (!encaminhado && agoraConversa?.estado !== "robo") return; // o cron dos 15 minutos encaminhou no meio
+  if (!encaminhado && !depoisDaPassagem && agoraConversa?.estado !== "robo") return; // o cron dos 15 minutos encaminhou no meio
   /* aviso do item 8.5 abrindo a primeira mensagem, em texto fixo */
   let texto = polir(textos.join("\n\n"), historico ?? [], !!encaminhado, primeiroNome(conversa.lead_nome));
   if (!texto && encaminhado) texto = despedidaPadrao(encaminhado);

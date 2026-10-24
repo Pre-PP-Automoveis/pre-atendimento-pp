@@ -2,7 +2,7 @@
 // O encaminhamento é de mentira, mas segue a regra real do horário: loja aberta avisa, loja fechada vai para a fila.
 // Serve para calibrar o robô antes de ligar a loja e depois de cada ajuste de prompt.
 import type Anthropic from "npm:@anthropic-ai/sdk";
-import { abertura, aberturaCurta, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
+import { abertura, aberturaCurta, notaDepoisDaPassagem, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
 import { pessoaPedida } from "./rodizio.ts";
 import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 
@@ -15,6 +15,7 @@ export type Cenario = {
   ficha_busca?: string | null;  // ou um trecho do título, para cenários escritos sem saber o id
   lead_nome?: string | null;    // nome do perfil do WhatsApp do lead
   mensagens: string[];          // uma entrada por turno do lead (várias linhas = várias mensagens seguidas)
+  passada_antes_do_turno?: number; // a partir deste turno (0 = primeiro), a conversa já foi passada ao consultor e ninguém respondeu
 };
 
 type Linha = { autor: "lead" | "robo"; texto: string; bruto?: string /* o que o modelo escreveu antes do polimento, para achar filtro que corta demais */ };
@@ -36,18 +37,21 @@ export async function simular(
     let custo = 0, encaminhamento: Encaminhamento | null = null, erro: string | null = null;
     for (const [i, msg] of c.mensagens.entries()) {
       historico.push({ autor: "lead", texto: msg });
+      const depois = c.passada_antes_do_turno != null && i >= c.passada_antes_do_turno;
       const horario = situacaoHorario(loja.horario ?? {}, quando);
       const messages = montarMensagens(historico, contextoTurno({
         agora: agoraSP(quando), horario: horario.texto, canal: c.canal ?? "Não identificado",
         veiculoAnuncio: c.veiculo_texto ?? null, ficha, primeiroTurno: i === 0, nome: c.lead_nome ?? null,
-        notas: [...notasDaConversa(historico, loja.endereco, (c.lead_nome ?? "").trim().split(/\s+/)[0] || null), ...[notaDeCor(historico, estoque)].filter((n): n is string => !!n)],
+        notas: [...notasDaConversa(historico, loja.endereco, (c.lead_nome ?? "").trim().split(/\s+/)[0] || null), ...[notaDeCor(historico, estoque)].filter((n): n is string => !!n),
+          ...(depois ? [notaDepoisDaPassagem(false)] : [])],
       }));
       if (!messages) break;
       try {
         const t = await rodarTurno({
           cliente, modelo: loja.modelo, sistema, messages,
-          validar: exigirConvite(historico, loja.endereco),
+          validar: depois ? undefined : exigirConvite(historico, loja.endereco),
           aoEncaminhar: async (e) => {
+            if (depois) return { ok: true, vendedor: null, atualizado: true, onde: ondeContinua(loja.numero_atendimento) };
             /* mesma regra do real: cliente que pede alguém do time pelo nome vai para essa pessoa */
             const equipe = ((loja.equipe ?? []) as string[]).map((nome, ordem) => ({ id: nome, nome, ativo: true, ordem, ultimo_lead_em: null }));
             const pedida = pessoaPedida(equipe, e.consultor)?.nome ?? null;
@@ -63,6 +67,7 @@ export async function simular(
         if (!texto && t.encaminhado) texto = despedidaPadrao(t.encaminhado);
         if (i === 0 && texto) texto = `${loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: c.lead_nome, quando, curta: aberturaCurta(t.encaminhamento?.motivo) })}\n\n${semAvisoRepetido(texto, msg)}`;
         historico.push({ autor: "robo", texto: texto || "[o robô não respondeu]", bruto: t.textos.join("\n\n") });
+        if (t.encaminhamento && depois) { encaminhamento = t.encaminhamento; continue; }
         if (t.encaminhamento) { encaminhamento = { ...t.encaminhamento, visita: visitaReal(t.encaminhamento.visita, historico, loja.endereco) }; break; }
       } catch (e) {
         erro = String((e as Error)?.message ?? e);
