@@ -40,6 +40,22 @@ export type Resultado = { ok: boolean; vendedor: string | null; nomeado?: boolea
 export const ondeContinua = (numeroAtendimento?: string | null) =>
   numeroAtendimento ? `pelo WhatsApp da loja, ${numeroAtendimento}` : "por aqui mesmo";
 
+/* Resumo para o consultor quando a triagem não terminou (tempo esgotado): o painel mostrava "ver na conversa" mesmo com
+   o cliente tendo dito carro, valor e troca (fim de semana de 24 e 25/10/2026). Uma chamada curta, com a ferramenta forçada. */
+export async function resumirParaConsultor(cliente: Anthropic, modelo: string, historico: Msg[]): Promise<Partial<Encaminhamento> | null> {
+  const conversa = historico.filter((m) => m.autor === "lead" || m.autor === "robo")
+    .map((m) => `${m.autor === "lead" ? "Cliente" : "Bia"}: ${m.texto}`).join("\n");
+  if (!conversa.trim()) return null;
+  const resp = await cliente.messages.create({
+    model: modelo, max_tokens: 1024,
+    system: "Você resume para o consultor de uma loja de carros o que o cliente disse numa conversa de pré-atendimento que não terminou. Use só o que o cliente disse ou confirmou; o que ele não disse fica como \"não perguntado\" ou \"não respondeu\". Sem travessão.",
+    tools: [ENCAMINHAR], tool_choice: { type: "tool", name: ENCAMINHAR.name },
+    messages: [{ role: "user", content: `<conversa>\n${conversa}\n</conversa>\nPreencha o resumo para o consultor.` }],
+  });
+  const uso = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+  return uso ? uso.input as Encaminhamento : null;
+}
+
 /* tudo o que o cliente escreveu desde a última resposta da Bia é só confirmação ou agradecimento */
 const CONFIRMACAO = /^(o+\s+)?(ok+|okay|blz|beleza|certo|perfeito|obrigad[oa]|muito obrigad[oa]|obg|vlw|valeu|t[aá] bom|t[aá]|combinado|entendi|show|top|vou sim|pode ser|sim|ah t[aá]|ata|tranquilo|de nada|por nada|[\p{Extended_Pictographic}\uFE0F\s]+)[\s!.,]*$/iu;
 export function soConfirmacao(historico: Msg[]) {

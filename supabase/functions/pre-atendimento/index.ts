@@ -11,7 +11,7 @@ import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHo
 import { foneLegivel, passouDoRobo, pessoaPedida, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
-import { abertura, aberturaCurta, notaDepoisDaPassagem, semONome, soConfirmacao, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { abertura, aberturaCurta, notaDepoisDaPassagem, resumirParaConsultor, semONome, soConfirmacao, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 import { equipeDoPainel, painelAdmin, painelConsultor, painelGerente } from "./painel.ts";
 import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
@@ -137,6 +137,26 @@ Deno.serve(async (req) => {
       segredos: { ANTHROPIC_API_KEY: tem("ANTHROPIC_API_KEY"), META_APP_ID: tem("META_APP_ID"), WHATSAPP_APP_SECRET: tem("WHATSAPP_APP_SECRET"), WHATSAPP_VERIFY_TOKEN: tem("WHATSAPP_VERIFY_TOKEN"),
         PP_META_APP_ID: tem("PP_META_APP_ID"), PP_WHATSAPP_APP_SECRET: tem("PP_WHATSAPP_APP_SECRET") },
     }), { headers: { "Content-Type": "application/json" } });
+  }
+
+  /* refaz o resumo do consultor das conversas passadas por tempo esgotado com o aviso genérico. Chave de serviço. */
+  if (url.searchParams.get("resumir") !== null) {
+    const chave = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const { error: negado } = chave
+      ? await createClient(Deno.env.get("SUPABASE_URL")!, chave, { auth: { persistSession: false } }).rpc("pa_confere_cron", { segredo: "-" })
+      : { error: true };
+    if (negado) return new Response("forbidden", { status: 403 });
+    const { ids } = await req.json().catch(() => ({ ids: [] }));
+    const feitos: Record<string, string> = {};
+    for (const id of (ids ?? []) as string[]) {
+      const { data: conversa } = await admin.from("pa_conversas").select("*").eq("id", id).single();
+      if (!conversa || conversa.resumo?.motivo !== "tempo_esgotado") continue;
+      const { data: loja } = await admin.from("pa_lojas").select("*").eq("id", conversa.loja_id).single();
+      const resumo = await resumoDoTempoEsgotado(loja, conversa);
+      await admin.from("pa_conversas").update({ resumo }).eq("id", id);
+      feitos[id] = resumo.resumo;
+    }
+    return new Response(JSON.stringify(feitos), { headers: { "Content-Type": "application/json" } });
   }
 
   /* simulador: roda cenários com o prompt e o código reais, sem WhatsApp e sem gravar nada. Chave de serviço. */
@@ -475,15 +495,29 @@ async function tirarDoRobo() {
     const { data: abertas } = await admin.from("pa_conversas").select("*").eq("loja_id", loja.id).eq("estado", "robo").is("primeira_acao_humana_em", null);
     for (const conversa of abertas ?? []) {
       if (!passouDoRobo(conversa, loja.prazo_robo_min ?? 15)) continue;
-      const r = await encaminhar(loja, conversa, {
-        motivo: "tempo_esgotado", consultor: "nenhum", veiculo: conversa.origem === "Tráfego Pago" ? "anúncio pago (ver na conversa)" : conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
-        troca: "ver na conversa", pagamento: "ver na conversa", visita: "ver na conversa", pendencias: "ver na conversa",
-        resumo: `Triagem não terminou em ${loja.prazo_robo_min ?? 15} min; a conversa inteira está no WhatsApp da loja.`,
-      }).catch((err) => ({ ok: false, erro: String(err) }) as Resultado);
+      const resumo = await resumoDoTempoEsgotado(loja, conversa);
+      const r = await encaminhar(loja, conversa, resumo).catch((err) => ({ ok: false, erro: String(err) }) as Resultado);
       if (r.ok) total++; else await registrarErro("tirar do robô", r.erro, loja.id, conversa.id);
     }
   }
   return total;
+}
+
+/* resumo do consultor quando a triagem não terminou: o que o cliente disse, ou o aviso genérico se a chamada falhar */
+async function resumoDoTempoEsgotado(loja: Linha, conversa: Linha): Promise<Encaminhamento> {
+  const padrao: Encaminhamento = {
+    motivo: "tempo_esgotado", consultor: "nenhum", veiculo: conversa.origem === "Tráfego Pago" ? "anúncio pago (ver na conversa)" : conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
+    troca: "ver na conversa", pagamento: "ver na conversa", visita: "ver na conversa", pendencias: "ver na conversa",
+    resumo: `Triagem não terminou em ${loja.prazo_robo_min ?? 15} min; a conversa inteira está no WhatsApp da loja.`,
+  };
+  try {
+    const { data: historico } = await admin.from("pa_mensagens").select("autor, texto").eq("conversa_id", conversa.id).in("autor", ["lead", "robo"]).order("id");
+    const feito = await resumirParaConsultor(anthropic(), loja.modelo, historico ?? []);
+    return feito ? { ...padrao, ...feito, motivo: "tempo_esgotado", consultor: "nenhum" } : padrao;
+  } catch (e) {
+    await registrarErro("resumo", e, loja.id, conversa.id);
+    return padrao;
+  }
 }
 
 /* cron: despacha a fila de cada loja ativa que já abriu, na ordem em que os leads chegaram.
