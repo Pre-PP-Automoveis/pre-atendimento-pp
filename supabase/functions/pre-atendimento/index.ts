@@ -11,7 +11,7 @@ import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHo
 import { foneLegivel, passouDoRobo, pessoaPedida, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
-import { abertura, aberturaCurta, notaDepoisDaPassagem, semONome, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { abertura, aberturaCurta, notaDepoisDaPassagem, semONome, soConfirmacao, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 import { equipeDoPainel, painelAdmin, painelConsultor, painelGerente } from "./painel.ts";
 import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
@@ -361,6 +361,13 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
   ]);
   const veiculos = (estoque ?? []) as Veiculo[];
   const ficha = veiculos.find((v) => v.id === conversa.veiculo_id) ?? null;
+  /* a mensagem do cliente que este turno responde: se chegar outra enquanto a resposta é escrita, quem responde é o
+     processamento da mais nova, que já enxerga as duas (fim de semana de 24 e 25/10: duas respostas fora de ordem) */
+  const ultimaDoLeadId = async () => (await admin.from("pa_mensagens").select("id").eq("conversa_id", conversaId).eq("autor", "lead")
+    .order("id", { ascending: false }).limit(1).single()).data?.id;
+  const respondendo = await ultimaDoLeadId();
+  /* depois da passagem, "ok", "obrigada" e "👍" não pedem resposta: a Bia não fecha a conversa de novo a cada agradecimento */
+  if (depoisDaPassagem && soConfirmacao(historico ?? [])) return;
   const primeiroTurno = !conversa.respondido_robo_em;
   const messages = montarMensagens(historico ?? [], contextoTurno({
     agora: agoraSP(), horario: situacaoHorario(loja.horario ?? {}).texto, canal: conversa.origem,
@@ -418,6 +425,7 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
   let texto = polir(textos.join("\n\n"), historico ?? [], !!encaminhado, primeiroNome(conversa.lead_nome));
   if (!texto && encaminhado) texto = despedidaPadrao(encaminhado);
   if (!texto) return;
+  if (!encaminhado && (await ultimaDoLeadId()) !== respondendo) return;
   if (primeiroTurno) {
     const ultimaDoLead = [...(historico ?? [])].reverse().find((m) => m.autor === "lead")?.texto ?? "";
     /* a abertura já chama a pessoa pelo nome: o nome sai da resposta desta primeira mensagem */
@@ -430,6 +438,7 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
     await admin.from("pa_mensagens").insert({ conversa_id: conversaId, autor: "robo", texto: oi });
   }
 
+  if (!encaminhado && (await ultimaDoLeadId()) !== respondendo) return;
   await enviarTexto(loja.phone_number_id, conversa.lead_wa, texto);
   await admin.from("pa_mensagens").insert({ conversa_id: conversaId, autor: "robo", texto, custo_usd: Number(custo.toFixed(6)) });
   if (primeiroTurno) await admin.from("pa_conversas").update({ respondido_robo_em: new Date().toISOString() }).eq("id", conversaId);

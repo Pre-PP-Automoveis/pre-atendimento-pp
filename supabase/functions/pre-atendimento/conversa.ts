@@ -40,6 +40,14 @@ export type Resultado = { ok: boolean; vendedor: string | null; nomeado?: boolea
 export const ondeContinua = (numeroAtendimento?: string | null) =>
   numeroAtendimento ? `pelo WhatsApp da loja, ${numeroAtendimento}` : "por aqui mesmo";
 
+/* tudo o que o cliente escreveu desde a última resposta da Bia é só confirmação ou agradecimento */
+const CONFIRMACAO = /^(o+\s+)?(ok+|okay|blz|beleza|certo|perfeito|obrigad[oa]|muito obrigad[oa]|obg|vlw|valeu|t[aá] bom|t[aá]|combinado|entendi|show|top|vou sim|pode ser|sim|ah t[aá]|ata|tranquilo|de nada|por nada|[\p{Extended_Pictographic}\uFE0F\s]+)[\s!.,]*$/iu;
+export function soConfirmacao(historico: Msg[]) {
+  const desde = [];
+  for (const m of [...historico].reverse()) { if (m.autor === "robo") break; if (m.autor === "lead") desde.push(m.texto); }
+  return desde.length > 0 && desde.every((t) => t.split(/\n+/).every((l) => !l.trim() || CONFIRMACAO.test(l.trim())));
+}
+
 /* a conversa já foi passada ao consultor e ninguém do time respondeu: a Bia segue ajudando */
 export const notaDepoisDaPassagem = (fila: boolean) =>
   `A conversa já foi passada a um consultor, que ainda não respondeu${fila ? " (a loja está fechada; ele continua na abertura)" : ""}. Continue ajudando a pessoa: responda o que ela perguntar com a ficha e complete a triagem que faltar (carro, troca, pagamento, convite com o endereço), sem repetir o que já disse e sem nova despedida. Se ela trouxer informação nova (carro de interesse, troca, pagamento, quando vem), chame encaminhar_ao_vendedor para atualizar o resumo do consultor. Não diga que o consultor "já vai responder" em toda mensagem.`;
@@ -137,7 +145,7 @@ export function abertura(p: { loja: string; assistente?: string | null; nomeDoLe
   const saudacao = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
   const primeiro = (p.nomeDoLead ?? "").trim().split(/\s+/)[0] ?? "";
   /* perfil com número ou com cara de empresa ("AUTO PEÇAS 123", "Loja do Zé") não vira nome de gente */
-  const empresa = /\d|\b(ltda|me|eireli|auto|autos|pe[cç]as|ve[ií]culos|loja|motors?|multimarcas|oficial|store|com[eé]rcio|servi[cç]os|distribuidora)\b/i.test(p.nomeDoLead ?? "");
+  const empresa = /\d|\b(deus|jesus|cristo|senhor|f[ée]|gratid[aã]o|amor|vida|minha|meu|fam[ií]lia|ltda|me|eireli|auto|autos|pe[cç]as|ve[ií]culos|loja|motors?|multimarcas|oficial|store|com[eé]rcio|servi[cç]os|distribuidora)\b/i.test(p.nomeDoLead ?? "");
   /* "JRS", "GL": iniciais em maiúscula não são nome de gente */
   const nome = !empresa && /^[A-Za-zÀ-ÿ]{2,15}$/.test(primeiro) && !/^[A-ZÀ-Ý]{2,3}$/.test(primeiro) ? primeiro[0].toUpperCase() + primeiro.slice(1).toLowerCase() : "";
   const quem = p.assistente ? `Sou a ${p.assistente}, assistente da ${p.loja}` : `Sou a assistente da ${p.loja}`;
@@ -250,6 +258,8 @@ export function semFrasesFeitas(texto: string, ofertaPedida = false) {
     .map((f) => f.replace(/\b(que tal|pode|s[óo]) aparecer\b/gi, "$1 vir"))
     /* oferta genérica no fim da frase ("..., se quiser saber mais alguma coisa sobre ele é só falar") */
     .map((f) => f.replace(/,?\s*se (quiser|precisar)[^.?!]*\b(saber mais|mais detalhes|mais alguma coisa)\b[^.?!]*/i, "").replace(/^\s*[.!?]$/, ""))
+    /* promessa que a Bia não cumpre ("seu número já está salvo aqui comigo", 25/10/2026) */
+    .filter((f) => !/(seu n[uú]mero|seu contato|te) (j[aá] )?(est[aá] |fica |foi )?(salv|anotad[oa] (aqui )?comigo)|salvei (seu|o seu|teu)/i.test(f))
     /* "ficha" é a palavra de bastidor; para o cliente a informação simplesmente está ou não está com a Bia */
     .map((f) => f.replace(/n[aã]o (est[aá]|consta|aparece) na (minha )?ficha/gi, "eu não tenho aqui")
       .replace(/est[aá] certo na (minha )?ficha/gi, "posso confirmar").replace(/\s+(aqui )?(na (minha )?|n(ess|est)a )ficha\b/gi, ""))
@@ -324,6 +334,7 @@ export const aberturaCurta = (motivo?: string | null) => motivo === "fora_do_esc
 const nomeProprio = (nome?: string | null) => {
   const n = (nome ?? "").trim().split(/\s+/)[0].replace(/[^\p{L}]/gu, "");
   if (/^\p{Lu}{2,3}$/u.test(n)) return ""; // iniciais
+  if (/^(deus|jesus|cristo|senhor|amor|vida|minha|meu)$/i.test(n)) return "";
   return n ? n[0].toUpperCase() + n.slice(1).toLowerCase() : "";
 };
 

@@ -251,3 +251,14 @@ Deno.test("dia 2 no ar: '?' sozinho, comentário do anúncio no meio da frase, i
     "Não consegui ouvir o áudio, pode escrever por mensagem? Me conta: qual carro te chamou atenção?");
   assertEquals(abertura({ loja: "PP", assistente: "Bia", nomeDoLead: "JRS", quando: new Date("2026-10-23T21:00:00-03:00"), curta: true }), "Boa noite! Sou a Bia, assistente da PP.");
 });
+
+import { soConfirmacao } from "./conversa.ts";
+Deno.test("fim de semana de 24 e 25/10: confirmação sem resposta, promessa de salvar número, nome que não é nome", () => {
+  const h = (...t: string[]) => [{ autor: "robo", texto: "Combinado!" }, ...t.map((texto) => ({ autor: "lead", texto }))];
+  assertEquals(soConfirmacao(h("O obrigada", "Vou sim")), true);
+  assertEquals(soConfirmacao(h("👍")), true);
+  assertEquals(soConfirmacao(h("Perfeito")), true);
+  assertEquals(soConfirmacao(h("ok, e aceita troca?")), false);
+  assertEquals(polimento("Não funcionamos assim. Seu número já está salvo aqui comigo."), "Não funcionamos assim.");
+  assertEquals(abertura({ loja: "PP", assistente: "Bia", nomeDoLead: "Deus Minha Fortaleza", quando: new Date("2026-10-26T07:00:00-03:00"), curta: true }), "Bom dia! Sou a Bia, assistente da PP.");
+});
