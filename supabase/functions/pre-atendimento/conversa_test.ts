@@ -262,3 +262,8 @@ Deno.test("fim de semana de 24 e 25/10: confirmação sem resposta, promessa de 
   assertEquals(polimento("Não funcionamos assim. Seu número já está salvo aqui comigo."), "Não funcionamos assim.");
   assertEquals(abertura({ loja: "PP", assistente: "Bia", nomeDoLead: "Deus Minha Fortaleza", quando: new Date("2026-10-26T07:00:00-03:00"), curta: true }), "Bom dia! Sou a Bia, assistente da PP.");
 });
+
+Deno.test("'na nossa ficha' e procedência fora da boca da Bia (28/10)", () => {
+  assertEquals(polimento("Isso quem confirma é o consultor, viu Conceição? Na nossa ficha não temos informação sobre procedência ou histórico de leilão. Posso seguir te ajudando."),
+    "Isso quem confirma é o consultor, viu Conceição? Posso seguir te ajudando.");
+});

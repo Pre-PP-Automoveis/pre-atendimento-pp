@@ -277,8 +277,10 @@ export function semFrasesFeitas(texto: string, ofertaPedida = false) {
     /* promessa que a Bia não cumpre ("seu número já está salvo aqui comigo", 25/10/2026) */
     .filter((f) => !/(seu n[uú]mero|seu contato|te) (j[aá] )?(est[aá] |fica |foi )?(salv|anotad[oa] (aqui )?comigo)|salvei (seu|o seu|teu)/i.test(f))
     /* "ficha" é a palavra de bastidor; para o cliente a informação simplesmente está ou não está com a Bia */
-    .map((f) => f.replace(/n[aã]o (est[aá]|consta|aparece) na (minha )?ficha/gi, "eu não tenho aqui")
-      .replace(/est[aá] certo na (minha )?ficha/gi, "posso confirmar").replace(/\s+(aqui )?(na (minha )?|n(ess|est)a )ficha\b/gi, ""))
+    .map((f) => f.replace(/n[aã]o (est[aá]|consta|aparece) na (minha |nossa )?ficha/gi, "eu não tenho aqui")
+      /* "Na nossa ficha não temos informação sobre procedência ou leilão" (28/10): procedência e leilão são só do consultor */
+      .replace(/^na (minha |nossa )?ficha,?\s*n[aã]o (temos|tenho) informa[cç][aã]o sobre [^.?!]*(proced[eê]ncia|leil[aã]o|laudo|sinistro)[^.?!]*[.!]?$/i, "")
+      .replace(/est[aá] certo na (minha )?ficha/gi, "posso confirmar").replace(/\s+(aqui )?(na (minha |nossa )?|n(ess|est)a )ficha\b/gi, ""))
     /* "Ele tem carro na troca?" falando com a própria pessoa (visto em lead real, 23/10/2026) */
     .map((f) => /\?$/.test(f.trim()) && /troca|pagar|financ|vista/i.test(f) ? f.replace(/^Ele (tem|pensa|prefere|quer|vai)\b/, "Você $1") : f)
     /* "Perfeito, Carla." sozinho cai; "Show, Marcos, já anotei" vira "Marcos, já anotei" */
