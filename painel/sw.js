@@ -7,7 +7,7 @@ self.addEventListener("push", function (e) {
   var a = {};
   try { a = e.data ? e.data.json() : {}; } catch (x) { a = { corpo: e.data ? e.data.text() : "" }; }
   e.waitUntil(self.registration.showNotification(a.titulo || "Lead novo", {
-    body: a.corpo || "", icon: "/icone-192.png", badge: "/icone-192.png",
+    body: a.corpo || "", icon: "/icone-192.png", badge: "/badge-96.png",
     tag: a.tag || "lead", renotify: true, data: { url: a.url || "/" },
   }));
 });
