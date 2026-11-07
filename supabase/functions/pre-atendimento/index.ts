@@ -13,6 +13,7 @@ import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "
 import { ligarLoja } from "./ligacao.ts";
 import { abertura, aberturaCurta, notaDepoisDaPassagem, resumirParaConsultor, semONome, soConfirmacao, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
+import { chavePublica, enviarAvisos } from "./push.ts";
 import { equipeDoPainel, painelAdmin, painelConsultor, painelGerente } from "./painel.ts";
 import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
 
@@ -97,7 +98,9 @@ Deno.serve(async (req) => {
     const corpo = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const r = await (
       rota === "entrar" ? entrarNoPainel(corpo)
-      : rota === "sair" ? sairDoPainel(sessao)
+      : rota === "sair" ? sairDoPainel(sessao, corpo)
+      : rota === "push_chave" ? chavePublica().then((chave) => ({ status: 200, corpo: { chave } }))
+      : rota === "push" ? guardarPush(sessao, corpo)
       : rota === "senha" ? trocarSenha(sessao, corpo)
       : rota === "conversa" ? lerConversa(sessao, url.searchParams.get("id") ?? "")
       : req.method === "POST" ? agirPainel(sessao, corpo)
@@ -350,6 +353,7 @@ async function abrirConversa(loja: Linha, msg: Linha, texto: string, nomePerfil:
     return data!;
   }
   if (error) throw error;
+  EdgeRuntime.waitUntil(avisarLeadNovo(loja, nova!).catch((e) => registrarErro("aviso", e, loja.id, nova!.id)));
   return nova!;
 }
 
@@ -667,9 +671,46 @@ async function entrarNoPainel(pedido: Linha): Promise<Resposta> {
   return { status: 200, corpo: { sessao, nome: pessoa.nome, trocar_senha: !!pessoa.trocar_senha } };
 }
 
-async function sairDoPainel(sessao: string): Promise<Resposta> {
+async function sairDoPainel(sessao: string, pedido: Linha = {}): Promise<Resposta> {
+  /* quem sai do painel para de receber aviso de lead neste aparelho */
+  const pessoa = sessao ? await donoDaSessao(sessao) : null;
+  if (pessoa && typeof pedido.endpoint === "string") await admin.from("pa_push").delete().eq("endpoint", pedido.endpoint).eq("vendedor_id", pessoa.id);
   if (sessao) await admin.from("pa_sessoes").delete().eq("token_hash", await resumoDoToken(sessao));
   return { status: 200, corpo: { ok: true } };
+}
+
+/* o aparelho aceitou receber aviso de lead novo: guarda a inscrição dele (a mesma inscrição troca de dono se outra pessoa entrar ali) */
+async function guardarPush(sessao: string, pedido: Linha): Promise<Resposta> {
+  const pessoa = await donoDaSessao(sessao);
+  if (!pessoa) return SAIU;
+  const i = pedido.inscricao;
+  const valida = i && typeof i.endpoint === "string" && /^https:\/\//.test(i.endpoint) && i.endpoint.length < 1000 &&
+    typeof i.keys?.p256dh === "string" && typeof i.keys?.auth === "string" && i.keys.p256dh.length < 200 && i.keys.auth.length < 100;
+  if (!valida) return { status: 400, corpo: { erro: "Inscrição de aviso inválida." } };
+  const inscricao = { endpoint: i.endpoint, keys: { p256dh: i.keys.p256dh, auth: i.keys.auth } };
+  await admin.from("pa_push").upsert({ endpoint: i.endpoint, vendedor_id: pessoa.id, inscricao });
+  /* quem acabou de ligar recebe um aviso de teste na hora, para ver que chega */
+  if (pedido.teste) {
+    const r = await enviarAvisos([{ endpoint: i.endpoint, inscricao }], { titulo: "Avisos ligados", corpo: "É assim que cada lead novo vai aparecer neste celular.", url: "/", tag: "teste" });
+    return { status: 200, corpo: { ok: true, teste: r.enviados === 1 } };
+  }
+  return { status: 200, corpo: { ok: true } };
+}
+
+/* lead novo chegou: avisa no celular todo mundo ativo da loja que ligou o aviso no painel */
+async function avisarLeadNovo(loja: Linha, conversa: Linha) {
+  const { data: equipe } = await admin.from("pa_vendedores").select("id").eq("loja_id", loja.id).eq("ativo", true);
+  const ids = (equipe ?? []).map((v: Linha) => v.id);
+  if (!ids.length) return;
+  const { data: inscricoes } = await admin.from("pa_push").select("endpoint, inscricao").in("vendedor_id", ids);
+  if (!inscricoes?.length) return;
+  const nome = (conversa.lead_nome ?? "").trim().split(/\s+/)[0] || "Cliente novo";
+  const { mortos } = await enviarAvisos(inscricoes, {
+    titulo: `Lead novo: ${nome}`,
+    corpo: conversa.origem === "Tráfego Pago" ? "Veio do anúncio. A Bia já está atendendo." : "A Bia já está atendendo.",
+    url: "/", tag: conversa.id,
+  });
+  if (mortos.length) await admin.from("pa_push").delete().in("endpoint", mortos);
 }
 
 async function trocarSenha(sessao: string, pedido: Linha): Promise<Resposta> {

@@ -2,19 +2,25 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Leads PP Automóveis</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#1F2022">
-<link rel="icon" href="data:,">
+<link rel="icon" href="/icone-192.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icone-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Leads PP">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <style>
   /* cores da PP, amostradas do logo PP37: grafite, cinza e o vermelho #B81111. O logo pede grafite médio, não preto chapado.
      Vermelho de texto é mais claro (#FF5A5F) para ler sobre o grafite; o #B81111 vai em fundo de botão e em marca. */
   :root { --f-corpo: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; --f-display: var(--f-corpo);
           --p-chao:#1F2022; --p-folha:#2A2C2F; --p-tinta:#F2F2F3; --p-apoio:#9B9C9E; --p-fio:#3D3F43;
           --p-marca:#B81111; --p-acao:#FF5A5F; --p-vez:#B81111; --p-vez-f:#3A3C40;
-          --p-urg:#FF5A5F; --p-urg-f:#3F1B1D; --p-meio:#FFB3B5; --p-meio-f:#5C1517; color-scheme: dark; }
+          --p-urg:#FF5A5F; --p-urg-f:#3F1B1D; --p-meio:#FFB3B5; --p-meio-f:#5C1517; --p-ok:#4CC38A; --p-bia:#8FA3B8; color-scheme: dark; }
   html, body { background: var(--p-chao); color: var(--p-tinta); }
   /* barra de rolagem no vermelho da PP, em toda área que rola (página, tabelas, conversa) */
   * { scrollbar-color: var(--p-marca) var(--p-chao); }
@@ -23,7 +29,7 @@
   ::-webkit-scrollbar-thumb { background: var(--p-marca); border-radius: 999px; border: 2px solid var(--p-chao); }
   ::-webkit-scrollbar-thumb:hover { background: #D41A1A; }
   body { border-top: 4px solid var(--p-marca); margin: 0; font: 400 15px/1.5 var(--f-corpo, 'Manrope', system-ui, sans-serif); padding-inline: 16px; padding-block: 18px 48px; }
-  .pg { max-width: 760px; margin: 0 auto; display: grid; gap: 18px; }
+  .pg { max-width: 1280px; margin: 0 auto; display: grid; gap: 18px; }
   .pg > * { min-width: 0; }
   .topo { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
   .logo { display: block; width: 150px; height: auto; margin: 0 0 10px; }
@@ -100,15 +106,82 @@
   .conversa li.sistema { background: none; border: 1px dashed var(--p-fio); color: var(--p-apoio); font-size: 13px; }
   #dlg-conversa { width: min(640px, calc(100vw - 32px)); }
   /* passar vários leads de uma vez: a marca em cada card e a barra fixa embaixo */
-  .marca { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; font-size: 14px; color: var(--p-apoio); cursor: pointer; }
-  .marca input { width: 22px; height: 22px; accent-color: var(--p-marca); margin: 0; }
-  .card.marcado { outline: 2px solid var(--p-acao); outline-offset: -1px; }
   .lote { position: fixed; left: 0; right: 0; bottom: 0; background: var(--p-folha); border-top: 3px solid var(--p-marca); padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); z-index: 5; }
   .lote[hidden] { display: none; }
   .lote .dentro { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .lote b { font-size: 15px; margin-right: auto; }
   .lote button:disabled { opacity: .45; cursor: not-allowed; }
   body.com-lote { padding-bottom: 150px; }
+  /* quadro em colunas (Kauan, 07/11/2026): cada coluna é uma etapa do lead, da Bia ao atendido */
+  .barra-topo { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .contador { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--p-fio); background: var(--p-folha); color: var(--p-tinta); font: 600 14px/1 var(--f-corpo); cursor: pointer; }
+  .contador i { width: 10px; height: 10px; border-radius: 50%; background: var(--cor); }
+  .contador b { font-size: 16px; }
+  .quadro { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 12px; align-items: start; }
+  .coluna { background: var(--p-folha); border: 1px solid var(--p-fio); border-top: 4px solid var(--cor); border-radius: 12px; padding: 12px; display: grid; gap: 8px; align-content: start; min-width: 0; scroll-margin-top: 12px; }
+  .coluna > header { display: grid; gap: 2px; margin-bottom: 2px; }
+  .coluna > header .t { display: flex; justify-content: space-between; align-items: center; gap: 8px; font: 700 15px/1.2 var(--f-corpo); }
+  .coluna > header .t span { background: var(--cor); color: #121314; border-radius: 999px; padding: 2px 9px; font-size: 13px; }
+  .coluna > header small { color: var(--p-apoio); font-size: 12.5px; line-height: 1.35; }
+  .coluna .c-vazio { color: var(--p-apoio); font-size: 13.5px; border: 1px dashed var(--p-fio); border-radius: 10px; padding: 12px; margin: 0; text-align: center; }
+  .cor-bia { --cor: var(--p-bia); } .cor-fila { --cor: #C9A227; } .cor-espera { --cor: var(--p-acao); } .cor-ok { --cor: var(--p-ok); } .cor-cinza { --cor: var(--p-apoio); }
+  .cartao { display: grid; gap: 5px; width: 100%; text-align: left; background: var(--p-chao); border: 1px solid var(--p-fio); border-radius: 10px; padding: 10px 12px; color: var(--p-tinta); font: inherit; cursor: pointer; min-height: 44px; position: relative; }
+  .cartao:hover { border-color: var(--p-apoio); }
+  .cartao.urg { border-left: 4px solid var(--p-urg); background: linear-gradient(0deg, var(--p-urg-f), var(--p-urg-f)); }
+  .cartao.marcado { outline: 2px solid var(--p-acao); outline-offset: -1px; }
+  .c-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px 8px; flex-wrap: wrap; }
+  .c-nome { font: 600 15px/1.25 var(--f-corpo); overflow-wrap: break-word; flex: 1 1 6em; min-width: 6em; }
+  .c-carro { font-size: 13.5px; color: var(--p-tinta); overflow-wrap: anywhere; }
+  .c-quem { font-size: 12.5px; color: var(--p-apoio); }
+  .c-quem b { color: var(--p-tinta); font-weight: 600; }
+  .cartao .tempo { font-size: 12px; padding: 4px 7px; }
+  .c-check { width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--p-apoio); flex: none; display: grid; place-items: center; }
+  .marcado .c-check { background: var(--p-marca); border-color: var(--p-marca); }
+  .marcado .c-check::after { content: ""; width: 5px; height: 10px; border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg) translate(-1px, -1px); }
+  .marcar-col { justify-self: start; }
+  #dlg-lead { width: min(520px, calc(100vw - 32px)); }
+  #dlg-lead .acoes { margin-top: 4px; }
+  @media (max-width: 900px) {
+    .quadro { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(270px, 86%); overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; }
+    .coluna { scroll-snap-align: start; }
+    .barra-topo { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+    .barra-topo > * { flex: none; }
+    .contador { min-height: 44px; padding: 0 12px; font-size: 13px; }
+  }
+  /* celular (Kauan, 07/11/2026: "100% otimizada para o mobile") */
+  @media (max-width: 600px) {
+    body { padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right)); padding-block: 12px 40px; }
+    .pg { gap: 14px; }
+    .logo { width: 104px; margin-bottom: 6px; }
+    .topo { align-items: center; }
+    .topo h1 { font-size: 22px; }
+    .topo p { font-size: 12px; }
+    .botoes { width: 100%; gap: 4px; }
+    .som { flex: 1; padding: 8px 10px; }
+    /* os contadores viram abas fixas no topo: um toque leva à coluna */
+    .barra-topo { position: sticky; top: 0; z-index: 3; background: var(--p-chao); margin-inline: -12px; padding: 8px 12px; border-bottom: 1px solid var(--p-fio); }
+    .quadro { grid-auto-columns: 88%; margin-inline: -12px; padding-inline: 12px; scroll-padding-inline: 12px; gap: 10px; }
+    .coluna { padding: 10px; scroll-margin-top: 70px; }
+    .cartao { padding: 12px; }
+    .c-nome { font-size: 16px; }
+    .c-carro { font-size: 14px; }
+    /* iPhone dá zoom em campo com letra menor que 16px */
+    select, input { font-size: 16px !important; }
+    /* janela do lead sobe de baixo, ocupando a largura toda */
+    #dlg-lead, #dlg-senha, #dlg-conversa { width: 100vw; max-width: 100vw; margin: auto 0 0; border-radius: 16px 16px 0 0; max-height: 88vh; overflow-y: auto; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); box-sizing: border-box; }
+    #dlg-lead .acoes > *, #dlg-lead .acoes label, #dlg-lead .acoes select { flex: 1 1 100%; width: 100%; }
+    #dlg-lead .abrir { width: 100%; }
+    #dlg-lead .fone { flex: 1 1 100%; text-align: center; }
+    /* barra de seleção em duas linhas: contagem em cima, destino e botão embaixo */
+    .lote { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+    .lote .dentro { gap: 6px 8px; }
+    .lote b { flex: 1 1 auto; }
+    .lote label { flex: 1 1 60%; } .lote select { width: 100%; }
+    body.com-lote { padding-bottom: 170px; }
+    .roda > div { padding: 8px 10px; }
+    .chave { min-width: 0; }
+    table { font-size: 13px; }
+  }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   a:focus-visible, button:focus-visible, summary:focus-visible, select:focus-visible { outline: 2px solid var(--p-acao); outline-offset: 2px; }
 </style>
@@ -118,7 +191,7 @@
   <header class="topo">
     <div><img class="logo" src="/logo-pp.png" alt="PP37 Pedro Paulo Automóveis" width="150" height="48"><h1 id="titulo">Painel de leads</h1><p id="sub">Carregando</p></div>
     <div class="botoes" id="botoes" hidden>
-      <button class="som" id="som" type="button" aria-pressed="false">Ativar aviso de lead novo</button>
+      <button class="som" id="som" type="button" aria-pressed="false">Ativar avisos de lead</button>
       <button class="sutil" id="abrir-senha" type="button">Trocar senha</button>
       <button class="sutil" id="sair" type="button">Sair</button>
     </div>
@@ -139,6 +212,12 @@
     <div class="linha1"><h2 id="conversa-titulo">Conversa</h2><button class="sutil" type="button" id="fechar-conversa">Fechar</button></div>
     <p class="nota" id="conversa-sub"></p>
     <ol class="conversa" id="conversa-msgs"></ol>
+  </div>
+</dialog>
+<dialog id="dlg-lead">
+  <div class="lista">
+    <div class="linha1"><h2 id="lead-nome">Lead</h2><button class="sutil" type="button" id="fechar-lead">Fechar</button></div>
+    <div id="lead-corpo" class="lista"></div>
   </div>
 </dialog>
 <dialog id="dlg-senha">
@@ -199,39 +278,68 @@ function acoesGerente(l) {
     '<button class="sutil" type="button" data-acao="nao_e_lead" data-id="' + l.id + '" data-nome="' + esc(l.nome) + '">Não é lead</button>';
 }
 
-function caixa(l) {
-  if (!gerente() || !selecionando) return "";
-  return '<label class="marca"><input type="checkbox" data-marca="' + l.id + '"' + (marcados.indexOf(l.id) >= 0 ? " checked" : "") + "> Selecionar " + '<span class="sr">' + esc(l.nome) + "</span></label>";
-}
-function classeMarcado(l) { return selecionando && marcados.indexOf(l.id) >= 0 ? " marcado" : ""; }
+var leadsNaTela = {}; /* id -> lead, para abrir a janela do cartão */
+var NAO_SABE = /^n[aã]o identificado$/i;
 
-function cardVez(l, mostrarConsultor) {
-  var s = selo(l, !mostrarConsultor || l.consultor_id === dados.eu);
-  return '<article class="card ' + (s.classe === "urg" ? "urg" : "vez") + classeMarcado(l) + '">' + caixa(l) +
-    '<div class="linha1"><span class="nome">' + esc(l.nome) + '</span><span class="tempo ' + s.classe + '">' + esc(s.texto) + "</span></div>" +
-    '<div class="carro">' + esc(l.carro) + (mostrarConsultor && l.consultor ? " · com " + esc(l.consultor) : "") + " · chegou às " + hora(l.chegou_em) + "</div>" +
+/* o selo do canto do cartão diz o que importa em cada etapa */
+function seloDoCartao(l, tipo) {
+  if (tipo === "espera" || tipo === "vez") return selo(l, tipo === "vez" || l.consultor_id === dados.eu);
+  if (tipo === "bia") return { classe: "", texto: "desde " + hora(l.chegou_em) };
+  if (tipo === "fila") return { classe: "", texto: dia(l.chegou_em) + " " + hora(l.chegou_em) };
+  if (tipo === "ok") return { classe: "", texto: "respondeu " + hora(l.atendido_em) };
+  return { classe: "", texto: dia(l.chegou_em) };
+}
+
+function quemNoCartao(l, tipo) {
+  if (tipo === "bia" || tipo === "fila") return "chegou " + dia(l.chegou_em) + " às " + hora(l.chegou_em);
+  if (tipo === "passou") return l.consultor ? "agora com <b>" + esc(l.consultor) + "</b>" : "";
+  if (tipo === "vez") return "chegou às " + hora(l.chegou_em);
+  if (l.consultor_id && l.consultor_id === dados.eu) return "com <b>você</b>";
+  return l.consultor ? "com <b>" + esc(l.consultor) + "</b>" : "sem consultor";
+}
+
+function cartao(l, tipo) {
+  leadsNaTela[l.id] = { lead: l, tipo: tipo };
+  var s = seloDoCartao(l, tipo), marcado = selecionando && marcados.indexOf(l.id) >= 0;
+  return '<button type="button" class="cartao' + (s.classe === "urg" ? " urg" : "") + (marcado ? " marcado" : "") + '" data-lead="' + l.id + '"' +
+    (selecionando ? ' aria-pressed="' + marcado + '"' : "") + ">" +
+    '<span class="c-topo">' + (selecionando ? '<span class="c-check" aria-hidden="true"></span>' : "") +
+    '<span class="c-nome" style="margin-right:auto">' + esc(l.nome) + '</span><span class="tempo ' + s.classe + '">' + esc(s.texto) + "</span></span>" +
+    '<span class="c-carro">' + esc(NAO_SABE.test(l.carro || "") ? "carro ainda não informado" : l.carro) + "</span>" +
+    '<span class="c-quem">' + quemNoCartao(l, tipo) + "</span></button>";
+}
+
+function coluna(c) {
+  return '<section class="coluna cor-' + c.cor + '" id="col-' + c.chave + '"><header><div class="t">' + c.titulo + "<span>" + c.itens.length + "</span></div><small>" + c.dica + "</small></header>" +
+    (selecionando && c.itens.length ? '<button class="sutil marcar-col" type="button" data-marcar-col="' + c.chave + '">Marcar todos desta coluna</button>' : "") +
+    (c.itens.length ? c.itens.map(function (l) { return cartao(l, c.tipo); }).join("") : '<p class="c-vazio">' + c.vazio + "</p>") + "</section>";
+}
+
+function quadro(colunas, extraTopo) {
+  return '<div class="barra-topo">' + colunas.map(function (c) {
+      return '<button class="contador cor-' + c.cor + '" type="button" data-ir="' + c.chave + '"><i></i>' + c.titulo + " <b>" + c.itens.length + "</b></button>";
+    }).join("") + (extraTopo || "") + "</div>" +
+    '<div class="quadro" style="--n:' + colunas.length + '">' + colunas.map(coluna).join("") + "</div>";
+}
+
+/* a janela do cartão: o resumo da Bia e tudo que dá para fazer com o lead */
+function abrirLead(id) {
+  var item = leadsNaTela[id];
+  if (!item) return;
+  var l = item.lead, s = seloDoCartao(l, item.tipo);
+  document.getElementById("lead-nome").textContent = l.nome;
+  document.getElementById("lead-corpo").innerHTML =
+    '<div class="carro">' + esc(NAO_SABE.test(l.carro || "") ? "Carro ainda não informado" : l.carro) + '</div>' +
+    '<div class="c-quem">' + quemNoCartao(l, item.tipo) + (s.texto ? ' · <span class="tempo ' + s.classe + '">' + esc(s.texto) + "</span>" : "") + "</div>" +
     detalhes(l) +
     '<div class="acoes"><a class="abrir" href="' + esc(l.whatsapp_link) + '" target="_blank" rel="noopener">' + (dados.numero_atendimento ? "Chamar no WhatsApp da loja" : "Abrir conversa") + '</a><span class="fone">' + esc(l.telefone) + "</span></div>" +
     /* com o número da Bia separado, o sistema não vê a resposta do consultor: ele marca aqui */
-    (dados.numero_atendimento && (l.consultor_id === dados.eu || gerente()) ? '<div class="acoes"><button class="btn" type="button" data-acao="atendi" data-id="' + l.id + '" data-nome="' + esc(l.nome) + '">Já chamei o cliente</button></div>' : "") +
-    (gerente() ? '<div class="acoes">' + acoesGerente(l) + "</div>" : "") + "</article>";
+    (dados.numero_atendimento && (item.tipo === "vez" || item.tipo === "espera") && (l.consultor_id === dados.eu || gerente()) ? '<div class="acoes"><button class="btn" type="button" data-acao="atendi" data-id="' + l.id + '" data-nome="' + esc(l.nome) + '">Já chamei o cliente</button></div>' : "") +
+    (gerente() ? '<div class="acoes">' + acoesGerente(l) + "</div>" : "");
+  var d = document.getElementById("dlg-lead");
+  if (!d.open) d.showModal();
 }
 
-/* lead com o robô, na fila ou já atendido: compacto, com as ações do gerente */
-function cardCurto(l, extra) {
-  return '<article class="card' + classeMarcado(l) + '">' + caixa(l) + '<div class="linha1"><span class="nome">' + esc(l.nome) + '</span><span class="fone">' + extra + "</span></div>" +
-    '<div class="carro">' + esc(l.carro) + (l.consultor ? " · com " + esc(l.consultor) : "") + "</div>" +
-    '<div class="acoes"><a class="btn" href="' + esc(l.whatsapp_link) + '" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center;height:44px;box-sizing:border-box">Ver conversa</a>' + acoesGerente(l) + "</div></article>";
-}
-
-function mini(l, extra) {
-  return '<div class="mini"><span><b>' + esc(l.nome) + "</b> · " + esc(l.carro) + "</span><span>" + extra + "</span></div>";
-}
-
-function bloco(titulo, itens, render, vazio) {
-  return "<h2>" + titulo + ' <span class="n">' + itens.length + "</span></h2>" +
-    (itens.length ? '<div class="lista">' + itens.map(render).join("") + "</div>" : '<p class="vazio">' + vazio + "</p>");
-}
 
 function recolhido(titulo, itens, render, aberto) {
   if (!itens.length) return "";
@@ -312,29 +420,31 @@ function desenhar() {
   /* não redesenha com uma lista de "passar para" aberta na mão do gerente */
   if (ocupado || (document.activeElement && document.activeElement.tagName === "SELECT" && conteudo.contains(document.activeElement))) return;
   var html = "";
+  leadsNaTela = {};
   if (dados.quem === "consultor") {
     document.getElementById("titulo").textContent = "Olá, " + dados.nome.split(" ")[0];
     if (dados.numero_atendimento && dados.sua_vez.length) html += '<p class="nota" style="margin:0">Chame o cliente pelo WhatsApp da loja, ' + esc(dados.numero_atendimento) + ', e depois toque em "Já chamei o cliente".</p>';
-    html += bloco("Sua vez agora", dados.sua_vez, function (l) { return cardVez(l, false); }, "Nenhum lead esperando por você. Quando chegar, ele aparece aqui.");
-    html += recolhido("Você atendeu", dados.atendidos, function (l) { return mini(l, "respondeu " + dia(l.atendido_em) + " às " + hora(l.atendido_em)); });
-    html += recolhido("Passaram para outra pessoa", dados.passaram, function (l) { return mini(l, l.consultor ? "agora com " + esc(l.consultor) : ""); });
+    html += quadro([
+      { chave: "vez", tipo: "vez", cor: "espera", titulo: "Sua vez", dica: "Responda em até " + dados.prazo_repasse_min + " min, senão o lead passa para o próximo", itens: dados.sua_vez, vazio: "Nenhum lead esperando por você." },
+      { chave: "ok", tipo: "ok", cor: "ok", titulo: "Você atendeu", dica: "Leads que você já respondeu", itens: dados.atendidos, vazio: "Nada por aqui ainda." },
+      { chave: "passou", tipo: "passou", cor: "cinza", titulo: "Passaram adiante", dica: "Foram para outra pessoa", itens: dados.passaram, vazio: "Nenhum." },
+    ]);
   } else {
     document.getElementById("titulo").textContent = dados.admin ? "Painel do administrador" : "Leads da loja";
-    if (dados.admin) html += blocoAdmin(dados.admin) + "<h2>Visão do gerente</h2>";
-    html += '<div class="acoes"><button class="btn" type="button" data-acao="selecionar">' + (selecionando ? "Sair da seleção" : "Selecionar vários leads") + "</button>" +
-      (selecionando ? '<span class="fone">Marque os leads e escolha embaixo para quem passar.</span>' : "") + "</div>";
-    if (dados.voce.sua_vez.length) html += bloco("Com você", dados.voce.sua_vez, function (l) { return cardVez(l, false); }, "");
-    var outros = dados.sem_resposta.filter(function (l) { return l.consultor_id !== dados.eu; });
-    html += bloco("Sem resposta", outros, function (l) { return cardVez(l, true); }, "Todo lead encaminhado já foi respondido.");
-    html += recolhido("Com o robô agora", dados.com_robo, function (l) { return cardCurto(l, "desde " + hora(l.chegou_em)); }, true);
-    html += recolhido("Na fila até a abertura", dados.fila_noite, function (l) { return cardCurto(l, "chegou " + dia(l.chegou_em) + " às " + hora(l.chegou_em)); });
-    html += recolhido("Atendidos hoje", dados.atendidos, function (l) { return cardCurto(l, hora(l.atendido_em)); });
+    if (selecionando) html += '<p class="nota" style="margin:0">Toque nos leads para marcar e escolha embaixo para quem passar.</p>';
+    html += quadro([
+      { chave: "bia", tipo: "bia", cor: "bia", titulo: "Com a Bia", dica: "A Bia está atendendo agora", itens: dados.com_robo, vazio: "Ninguém com a Bia agora." },
+      { chave: "fila", tipo: "fila", cor: "fila", titulo: "Fila da noite", dica: "Chegaram com a loja fechada; entram no rodízio na abertura", itens: dados.fila_noite, vazio: "Fila vazia." },
+      { chave: "espera", tipo: "espera", cor: "espera", titulo: "Esperando consultor", dica: "Já passados ao time e ainda sem resposta", itens: dados.sem_resposta, vazio: "Todo lead passado já foi respondido." },
+      { chave: "ok", tipo: "ok", cor: "ok", titulo: "Atendidos hoje", dica: "Alguém do time já respondeu", itens: dados.atendidos, vazio: "Ninguém atendido hoje ainda." },
+    ], '<button class="btn" type="button" data-acao="selecionar" style="margin-left:auto">' + (selecionando ? "Sair da seleção" : "Selecionar vários leads") + "</button>");
     html += rodizio();
     if (dados.placar && dados.placar.length) {
       html += "<h2>Hoje por consultor</h2><div class=\"placar\"><table><thead><tr><th>Consultor</th><th>Recebeu</th><th>Atendeu</th><th>Passou adiante</th><th>Tempo até responder</th></tr></thead><tbody>" +
         dados.placar.map(function (p) { return "<tr><td>" + esc(p.consultor) + "</td><td>" + p.recebidos + "</td><td>" + p.atendidos + "</td><td>" + p.passaram_adiante + "</td><td>" + (p.minutos_ate_responder == null ? "" : p.minutos_ate_responder + " min") + "</td></tr>"; }).join("") +
         "</tbody></table></div>";
     }
+    if (dados.admin) html += blocoAdmin(dados.admin);
   }
   conteudo.innerHTML = html;
   barraDoLote();
@@ -359,7 +469,8 @@ function avisar(novos) {
       o.connect(g); g.connect(ctx.destination); o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.22);
     });
   }
-  if (window.Notification && Notification.permission === "granted") {
+  /* com o aviso por push ligado, o celular já mostra o aviso; aqui fica só o som, para não avisar duas vezes */
+  if (!pushAtivo && window.Notification && Notification.permission === "granted") {
     try { new Notification("Lead novo para atender", { body: novos === 1 ? "Abra o painel para ver." : novos + " leads esperando." }); } catch (e) {}
   }
 }
@@ -412,6 +523,7 @@ function carregar() {
       if (!res.ok) { conteudo.innerHTML = '<p class="aviso">' + esc(res.j.erro || "Não foi possível abrir o painel.") + "</p>"; return; }
       document.getElementById("botoes").hidden = false;
       dados = res.j;
+      if (!avisosConferidos) { avisosConferidos = true; inscreverAvisos(false); }
       var ids = esperando().map(function (l) { return l.id; });
       if (vistos) avisar(ids.filter(function (id) { return vistos.indexOf(id) < 0; }).length);
       vistos = ids;
@@ -423,7 +535,7 @@ function carregar() {
 /* ações do gerente: o servidor confere que a sessão é de gerente */
 function agir(corpo, alvo) {
   ocupado = true;
-  conteudo.querySelectorAll("button[data-acao], select[data-acao]").forEach(function (b) { b.disabled = true; });
+  document.querySelectorAll("#conteudo button[data-acao], #conteudo select[data-acao], #dlg-lead button[data-acao], #dlg-lead select[data-acao]").forEach(function (b) { b.disabled = true; });
   chamar("", corpo)
     .then(function (res) {
       if (res.status === 401) { ocupado = false; telaDeEntrada(res.j.erro); return; }
@@ -432,12 +544,12 @@ function agir(corpo, alvo) {
       if (res.j.senha) alert("Nova senha de " + res.j.nome + "\n\nUsuário: " + res.j.usuario + "\nSenha: " + res.j.senha + "\n\nPasse só para essa pessoa. No primeiro acesso o painel pede para ela criar uma senha própria.");
     })
     .catch(function () { alert("Sem conexão. Tente de novo."); })
-    .then(function () { ocupado = false; if (alvo) alvo.blur(); return carregar(); });
+    .then(function () { ocupado = false; if (alvo) alvo.blur(); var d = document.getElementById("dlg-lead"); if (d.open) d.close(); return carregar(); });
 }
 
 /* leads que aparecem na tela agora, para tirar da seleção quem já saiu do painel */
 function idsNaTela() {
-  return Array.prototype.map.call(conteudo.querySelectorAll("input[data-marca]"), function (c) { return c.getAttribute("data-marca"); });
+  return Array.prototype.map.call(conteudo.querySelectorAll(".cartao[data-lead]"), function (c) { return c.getAttribute("data-lead"); });
 }
 
 function barraDoLote() {
@@ -462,11 +574,8 @@ function barraDoLote() {
 
 function sairDaSelecao() { selecionando = false; marcados = []; desenhar(); }
 
-/* "Marcar todos" pega só o que está à vista: lista recolhida fica de fora */
-function idsVisiveis() {
-  return Array.prototype.filter.call(conteudo.querySelectorAll("input[data-marca]"), function (c) { var d = c.closest("details"); return !d || d.open; })
-    .map(function (c) { return c.getAttribute("data-marca"); });
-}
+/* "Marcar todos": todos os leads do quadro */
+function idsVisiveis() { return idsNaTela(); }
 
 document.getElementById("lote-todos").addEventListener("click", function () {
   var vis = idsVisiveis();
@@ -496,7 +605,28 @@ document.getElementById("lote-passar").addEventListener("click", function () {
 
 function nomeDe(id) { var e = dados.equipe.filter(function (x) { return x.id === id; })[0]; return e ? e.nome : ""; }
 
-conteudo.addEventListener("click", function (ev) {
+document.addEventListener("click", function (ev) {
+  if (!ev.target.closest) return;
+  var ir = ev.target.closest("[data-ir]");
+  if (ir) { var col = document.getElementById("col-" + ir.getAttribute("data-ir")); if (col) col.scrollIntoView({ behavior: "smooth", block: "start", inline: "start" }); return; }
+  var mc = ev.target.closest("[data-marcar-col]");
+  if (mc) {
+    var ids = Array.prototype.map.call(mc.parentNode.querySelectorAll(".cartao[data-lead]"), function (c) { return c.getAttribute("data-lead"); });
+    marcados = marcados.concat(ids.filter(function (id) { return marcados.indexOf(id) < 0; }));
+    desenhar(); return;
+  }
+  var cart = ev.target.closest(".cartao[data-lead]");
+  if (cart) {
+    var id = cart.getAttribute("data-lead");
+    if (selecionando && gerente()) {
+      var ja = marcados.indexOf(id) >= 0;
+      marcados = marcados.filter(function (x) { return x !== id; });
+      if (!ja) marcados.push(id);
+      cart.classList.toggle("marcado", !ja); cart.setAttribute("aria-pressed", String(!ja));
+      barraDoLote();
+    } else abrirLead(id);
+    return;
+  }
   var b = ev.target.closest("button[data-acao]");
   if (!b || ocupado) return;
   var nome = b.getAttribute("data-nome");
@@ -517,16 +647,7 @@ conteudo.addEventListener("click", function (ev) {
   }
 });
 
-conteudo.addEventListener("change", function (ev) {
-  var c = ev.target;
-  if (c.matches && c.matches("input[data-marca]")) {
-    var id = c.getAttribute("data-marca");
-    marcados = marcados.filter(function (x) { return x !== id; });
-    if (c.checked) marcados.push(id);
-    c.closest("article").classList.toggle("marcado", c.checked);
-    barraDoLote();
-    return;
-  }
+document.addEventListener("change", function (ev) {
   var s = ev.target;
   if (!s.matches || !s.matches("select[data-acao='passar-para']") || !s.value) return;
   if (confirm("Passar " + s.getAttribute("data-nome") + " para " + nomeDe(s.value) + "?")) agir({ acao: "passar", conversa_id: s.dataset.id, para: s.value }, s);
@@ -579,10 +700,19 @@ conteudo.addEventListener("submit", function (ev) {
 
 document.getElementById("sair").addEventListener("click", function () {
   var s = sessao;
+  function avisarSaida(endpoint) {
+    fetch(FUNCAO + "sair", { method: "POST", headers: { "authorization": "Bearer " + s, "content-type": "application/json" }, body: JSON.stringify(endpoint ? { endpoint: endpoint } : {}) }).catch(function () {});
+  }
   telaDeEntrada();
-  fetch(FUNCAO + "sair", { method: "POST", headers: { "authorization": "Bearer " + s, "content-type": "application/json" }, body: "{}" }).catch(function () {});
+  pushAtivo = false; avisosConferidos = false; botaoAvisos();
+  /* quem sai para de receber aviso neste celular */
+  if (!temPush) { avisarSaida(); return; }
+  navigator.serviceWorker.getRegistration().then(function (reg) { return reg ? reg.pushManager.getSubscription() : null; })
+    .then(function (insc) { if (insc) insc.unsubscribe(); avisarSaida(insc && insc.endpoint); })
+    .catch(function () { avisarSaida(); });
 });
 
+document.getElementById("fechar-lead").addEventListener("click", function () { document.getElementById("dlg-lead").close(); });
 document.getElementById("fechar-conversa").addEventListener("click", function () { document.getElementById("dlg-conversa").close(); });
 var dlg = document.getElementById("dlg-senha");
 document.getElementById("abrir-senha").addEventListener("click", function () { document.getElementById("form-senha").reset(); document.getElementById("erro-senha").textContent = ""; dlg.showModal(); });
@@ -601,16 +731,63 @@ document.getElementById("form-senha").addEventListener("submit", function (ev) {
     .catch(function () { document.getElementById("erro-senha").textContent = "Sem conexão. Tente de novo."; });
 });
 
+/* ===== avisos de lead novo no celular (Web Push), para todo o time ===== */
+var pushAtivo = false, avisosConferidos = false;
+var iOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+var instalado = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+var temPush = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+function bytesDaChave(b) {
+  b = b.replace(/-/g, "+").replace(/_/g, "/"); while (b.length % 4) b += "=";
+  var t = atob(b), u = new Uint8Array(t.length);
+  for (var i = 0; i < t.length; i++) u[i] = t.charCodeAt(i);
+  return u;
+}
+
+function botaoAvisos() {
+  var b = document.getElementById("som");
+  var ligado = pushAtivo || (somLigado && !temPush);
+  b.setAttribute("aria-pressed", String(ligado));
+  b.textContent = pushAtivo ? "Avisos de lead ligados" : somLigado && !temPush ? "Som de lead ligado" : "Ativar avisos de lead";
+}
+
+/* inscreve este aparelho no aviso de lead novo; pedir = true só quando a pessoa toca no botão */
+function inscreverAvisos(pedir) {
+  if (!temPush || !sessao || Notification.permission === "denied") return Promise.resolve(false);
+  var permissao = Notification.permission === "granted" ? Promise.resolve("granted") : pedir ? Notification.requestPermission() : Promise.resolve("default");
+  return permissao.then(function (p) {
+    if (p !== "granted") return false;
+    return navigator.serviceWorker.register("/sw.js").then(function () { return navigator.serviceWorker.ready; })
+      .then(function (reg) {
+        return reg.pushManager.getSubscription().then(function (atual) {
+          return atual || chamar("push_chave").then(function (res) {
+            return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytesDaChave(res.j.chave) });
+          });
+        });
+      })
+      .then(function (insc) { return chamar("push", { inscricao: insc.toJSON(), teste: !!pedir }); })
+      .then(function (res) { pushAtivo = !!res.ok; return pushAtivo; });
+  }).catch(function () { return false; }).then(function (ok) { botaoAvisos(); return ok; });
+}
+
 document.getElementById("som").addEventListener("click", function () {
-  var b = this;
-  somLigado = !somLigado;
-  b.setAttribute("aria-pressed", String(somLigado));
-  b.textContent = somLigado ? "Aviso de lead novo ligado" : "Ativar aviso de lead novo";
-  if (somLigado) {
-    try { ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); ctx.resume(); } catch (e) {}
-    if (window.Notification && Notification.permission === "default") { try { Notification.requestPermission(); } catch (e) {} }
+  try { ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); ctx.resume(); } catch (e) {}
+  somLigado = true;
+  if (!temPush) {
+    botaoAvisos();
+    alert(iOS && !instalado
+      ? "No iPhone, o aviso de lead chega com o painel na Tela de Início:\n\n1. Toque em Compartilhar (o quadrado com a seta para cima)\n2. Toque em Adicionar à Tela de Início\n3. Abra o painel pelo ícone PP37 e toque em Ativar avisos de lead"
+      : "Este navegador não recebe aviso com o painel fechado. Com o painel aberto, o som toca a cada lead.");
+    return;
   }
+  if (Notification.permission === "denied") { alert("Os avisos estão bloqueados para este site. Libere as notificações do painel nas configurações do celular e toque de novo."); return; }
+  inscreverAvisos(true).then(function (ok) {
+    if (ok) alert("Pronto! Chegou um aviso de teste? É assim que cada lead novo vai aparecer neste celular, mesmo com o painel fechado.");
+    else if (Notification.permission !== "granted") alert("Para receber os avisos, toque em Permitir quando o celular perguntar.");
+  });
 });
+
+if (temPush) navigator.serviceWorker.addEventListener("message", function (e) { if (e.data && e.data.atualizar && !ocupado) carregar(); });
 
 carregar();
 setInterval(function () { if (!ocupado) carregar(); }, 20000);
