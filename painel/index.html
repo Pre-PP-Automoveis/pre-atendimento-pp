@@ -99,6 +99,16 @@
   .conversa li.vendedor { background: var(--p-vez-f); }
   .conversa li.sistema { background: none; border: 1px dashed var(--p-fio); color: var(--p-apoio); font-size: 13px; }
   #dlg-conversa { width: min(640px, calc(100vw - 32px)); }
+  /* passar vários leads de uma vez: a marca em cada card e a barra fixa embaixo */
+  .marca { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; font-size: 14px; color: var(--p-apoio); cursor: pointer; }
+  .marca input { width: 22px; height: 22px; accent-color: var(--p-marca); margin: 0; }
+  .card.marcado { outline: 2px solid var(--p-acao); outline-offset: -1px; }
+  .lote { position: fixed; left: 0; right: 0; bottom: 0; background: var(--p-folha); border-top: 3px solid var(--p-marca); padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); z-index: 5; }
+  .lote[hidden] { display: none; }
+  .lote .dentro { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .lote b { font-size: 15px; margin-right: auto; }
+  .lote button:disabled { opacity: .45; cursor: not-allowed; }
+  body.com-lote { padding-bottom: 150px; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   a:focus-visible, button:focus-visible, summary:focus-visible, select:focus-visible { outline: 2px solid var(--p-acao); outline-offset: 2px; }
 </style>
@@ -115,6 +125,15 @@
   </header>
   <div id="conteudo" class="lista"></div>
 </main>
+<div class="lote" id="lote" hidden>
+  <div class="dentro">
+    <b id="lote-n">Nenhum lead marcado</b>
+    <button class="sutil" type="button" id="lote-todos">Marcar todos</button>
+    <label><span class="sr">Passar os leads marcados para</span><select id="lote-para"><option value="">Passar para…</option></select></label>
+    <button class="abrir" type="button" id="lote-passar" style="border:0;cursor:pointer;font:600 15px/1 var(--f-corpo)">Passar</button>
+    <button class="sutil" type="button" id="lote-cancelar">Cancelar</button>
+  </div>
+</div>
 <dialog id="dlg-conversa">
   <div class="lista">
     <div class="linha1"><h2 id="conversa-titulo">Conversa</h2><button class="sutil" type="button" id="fechar-conversa">Fechar</button></div>
@@ -143,6 +162,7 @@ if (location.search) { try { history.replaceState(null, "", location.pathname); 
 var conteudo = document.getElementById("conteudo");
 var senhaDigitada = ""; /* só na memória, entre o login com a senha padrão e a troca obrigatória */
 var dados = null, vistos = null, somLigado = false, ctx = null, ocupado = false;
+var selecionando = false, marcados = []; /* gerente marcando vários leads para passar de uma vez */
 
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 function minutosDesde(iso) { return iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000)) : null; }
@@ -179,9 +199,15 @@ function acoesGerente(l) {
     '<button class="sutil" type="button" data-acao="nao_e_lead" data-id="' + l.id + '" data-nome="' + esc(l.nome) + '">Não é lead</button>';
 }
 
+function caixa(l) {
+  if (!gerente() || !selecionando) return "";
+  return '<label class="marca"><input type="checkbox" data-marca="' + l.id + '"' + (marcados.indexOf(l.id) >= 0 ? " checked" : "") + "> Selecionar " + '<span class="sr">' + esc(l.nome) + "</span></label>";
+}
+function classeMarcado(l) { return selecionando && marcados.indexOf(l.id) >= 0 ? " marcado" : ""; }
+
 function cardVez(l, mostrarConsultor) {
   var s = selo(l, !mostrarConsultor || l.consultor_id === dados.eu);
-  return '<article class="card ' + (s.classe === "urg" ? "urg" : "vez") + '">' +
+  return '<article class="card ' + (s.classe === "urg" ? "urg" : "vez") + classeMarcado(l) + '">' + caixa(l) +
     '<div class="linha1"><span class="nome">' + esc(l.nome) + '</span><span class="tempo ' + s.classe + '">' + esc(s.texto) + "</span></div>" +
     '<div class="carro">' + esc(l.carro) + (mostrarConsultor && l.consultor ? " · com " + esc(l.consultor) : "") + " · chegou às " + hora(l.chegou_em) + "</div>" +
     detalhes(l) +
@@ -193,7 +219,7 @@ function cardVez(l, mostrarConsultor) {
 
 /* lead com o robô, na fila ou já atendido: compacto, com as ações do gerente */
 function cardCurto(l, extra) {
-  return '<article class="card"><div class="linha1"><span class="nome">' + esc(l.nome) + '</span><span class="fone">' + extra + "</span></div>" +
+  return '<article class="card' + classeMarcado(l) + '">' + caixa(l) + '<div class="linha1"><span class="nome">' + esc(l.nome) + '</span><span class="fone">' + extra + "</span></div>" +
     '<div class="carro">' + esc(l.carro) + (l.consultor ? " · com " + esc(l.consultor) : "") + "</div>" +
     '<div class="acoes"><a class="btn" href="' + esc(l.whatsapp_link) + '" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center;height:44px;box-sizing:border-box">Ver conversa</a>' + acoesGerente(l) + "</div></article>";
 }
@@ -295,6 +321,8 @@ function desenhar() {
   } else {
     document.getElementById("titulo").textContent = dados.admin ? "Painel do administrador" : "Leads da loja";
     if (dados.admin) html += blocoAdmin(dados.admin) + "<h2>Visão do gerente</h2>";
+    html += '<div class="acoes"><button class="btn" type="button" data-acao="selecionar">' + (selecionando ? "Sair da seleção" : "Selecionar vários leads") + "</button>" +
+      (selecionando ? '<span class="fone">Marque os leads e escolha embaixo para quem passar.</span>' : "") + "</div>";
     if (dados.voce.sua_vez.length) html += bloco("Com você", dados.voce.sua_vez, function (l) { return cardVez(l, false); }, "");
     var outros = dados.sem_resposta.filter(function (l) { return l.consultor_id !== dados.eu; });
     html += bloco("Sem resposta", outros, function (l) { return cardVez(l, true); }, "Todo lead encaminhado já foi respondido.");
@@ -309,6 +337,7 @@ function desenhar() {
     }
   }
   conteudo.innerHTML = html;
+  barraDoLote();
   var pendentes = esperando().length;
   document.title = (pendentes ? "(" + pendentes + ") " : "") + "Leads " + dados.loja;
   document.getElementById("sub").textContent = dados.loja + " · " + dados.horario + " · atualizado às " + hora(dados.atualizado_em);
@@ -347,7 +376,7 @@ function chamar(rota, corpo) {
 }
 
 function telaDeEntrada(msg) {
-  dados = null; vistos = null; guardarSessao("");
+  dados = null; vistos = null; guardarSessao(""); selecionando = false; marcados = []; barraDoLote();
   document.getElementById("botoes").hidden = true;
   document.getElementById("titulo").textContent = "Painel de leads";
   document.getElementById("sub").textContent = "Pedro Paulo Automóveis";
@@ -406,13 +435,74 @@ function agir(corpo, alvo) {
     .then(function () { ocupado = false; if (alvo) alvo.blur(); return carregar(); });
 }
 
+/* leads que aparecem na tela agora, para tirar da seleção quem já saiu do painel */
+function idsNaTela() {
+  return Array.prototype.map.call(conteudo.querySelectorAll("input[data-marca]"), function (c) { return c.getAttribute("data-marca"); });
+}
+
+function barraDoLote() {
+  var barra = document.getElementById("lote");
+  if (!gerente() || !selecionando) { barra.hidden = true; document.body.classList.remove("com-lote"); return; }
+  var naTela = idsNaTela();
+  marcados = marcados.filter(function (id) { return naTela.indexOf(id) >= 0; });
+  barra.hidden = false; document.body.classList.add("com-lote");
+  document.getElementById("lote-n").textContent = marcados.length ? marcados.length + (marcados.length === 1 ? " lead marcado" : " leads marcados") : "Nenhum lead marcado";
+  var vis = idsVisiveis();
+  document.getElementById("lote-todos").textContent = vis.length && vis.every(function (id) { return marcados.indexOf(id) >= 0; }) ? "Desmarcar todos" : "Marcar todos";
+  var sel = document.getElementById("lote-para");
+  if (document.activeElement !== sel) {
+    var antes = sel.value;
+    sel.innerHTML = '<option value="">Passar para…</option>' + dados.equipe.map(function (e) {
+      return '<option value="' + e.id + '">' + esc(e.nome) + (e.id === dados.eu ? " (você)" : "") + "</option>";
+    }).join("");
+    sel.value = antes;
+  }
+  document.getElementById("lote-passar").disabled = ocupado || !marcados.length || !sel.value;
+}
+
+function sairDaSelecao() { selecionando = false; marcados = []; desenhar(); }
+
+/* "Marcar todos" pega só o que está à vista: lista recolhida fica de fora */
+function idsVisiveis() {
+  return Array.prototype.filter.call(conteudo.querySelectorAll("input[data-marca]"), function (c) { var d = c.closest("details"); return !d || d.open; })
+    .map(function (c) { return c.getAttribute("data-marca"); });
+}
+
+document.getElementById("lote-todos").addEventListener("click", function () {
+  var vis = idsVisiveis();
+  var todos = vis.length && vis.every(function (id) { return marcados.indexOf(id) >= 0; });
+  marcados = todos ? marcados.filter(function (id) { return vis.indexOf(id) < 0; }) : marcados.concat(vis.filter(function (id) { return marcados.indexOf(id) < 0; }));
+  desenhar();
+});
+document.getElementById("lote-para").addEventListener("change", barraDoLote);
+document.getElementById("lote-cancelar").addEventListener("click", sairDaSelecao);
+document.getElementById("lote-passar").addEventListener("click", function () {
+  var para = document.getElementById("lote-para").value;
+  if (!marcados.length || !para || ocupado) return;
+  var n = marcados.length;
+  if (!confirm("Passar " + n + (n === 1 ? " lead" : " leads") + " para " + nomeDe(para) + "?")) return;
+  ocupado = true; this.disabled = true;
+  chamar("", { acao: "passar_varios", conversa_ids: marcados, para: para })
+    .then(function (res) {
+      if (res.status === 401) { ocupado = false; telaDeEntrada(res.j.erro); return; }
+      if (!res.ok) { alert(res.j.erro || "Não deu certo. Tente de novo."); return; }
+      selecionando = false; marcados = []; document.getElementById("lote-para").value = "";
+      alert(res.j.passados + (res.j.passados === 1 ? " lead passado" : " leads passados") + " para " + res.j.para + "." +
+        (res.j.fora ? "\n\n" + res.j.fora + (res.j.fora === 1 ? " já tinha saído" : " já tinham saído") + " do painel e ficou de fora." : ""));
+    })
+    .catch(function () { alert("Sem conexão. Tente de novo."); })
+    .then(function () { ocupado = false; return carregar(); });
+});
+
 function nomeDe(id) { var e = dados.equipe.filter(function (x) { return x.id === id; })[0]; return e ? e.nome : ""; }
 
 conteudo.addEventListener("click", function (ev) {
   var b = ev.target.closest("button[data-acao]");
   if (!b || ocupado) return;
   var nome = b.getAttribute("data-nome");
-  if (b.dataset.acao === "atendi") {
+  if (b.dataset.acao === "selecionar") {
+    selecionando = !selecionando; marcados = []; desenhar();
+  } else if (b.dataset.acao === "atendi") {
     agir({ acao: "atendi", conversa_id: b.dataset.id });
   } else if (b.dataset.acao === "ver") {
     verConversa(b.dataset.id, nome);
@@ -428,6 +518,15 @@ conteudo.addEventListener("click", function (ev) {
 });
 
 conteudo.addEventListener("change", function (ev) {
+  var c = ev.target;
+  if (c.matches && c.matches("input[data-marca]")) {
+    var id = c.getAttribute("data-marca");
+    marcados = marcados.filter(function (x) { return x !== id; });
+    if (c.checked) marcados.push(id);
+    c.closest("article").classList.toggle("marcado", c.checked);
+    barraDoLote();
+    return;
+  }
   var s = ev.target;
   if (!s.matches || !s.matches("select[data-acao='passar-para']") || !s.value) return;
   if (confirm("Passar " + s.getAttribute("data-nome") + " para " + nomeDe(s.value) + "?")) agir({ acao: "passar", conversa_id: s.dataset.id, para: s.value }, s);

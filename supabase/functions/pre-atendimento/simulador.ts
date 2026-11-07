@@ -38,7 +38,7 @@ export async function simular(
     for (const [i, msg] of c.mensagens.entries()) {
       historico.push({ autor: "lead", texto: msg });
       const depois = c.passada_antes_do_turno != null && i >= c.passada_antes_do_turno;
-      const horario = situacaoHorario(loja.horario ?? {}, quando);
+      const horario = situacaoHorario(loja.horario ?? {}, quando, loja);
       const messages = montarMensagens(historico, contextoTurno({
         agora: agoraSP(quando), horario: horario.texto, canal: c.canal ?? "Não identificado",
         veiculoAnuncio: c.veiculo_texto ?? null, ficha, primeiroTurno: i === 0, nome: c.lead_nome ?? null,

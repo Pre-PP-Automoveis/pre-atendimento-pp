@@ -2,6 +2,7 @@
 // - sistema: régua, fronteira do contrato, voz da loja e estoque. Igual em toda chamada da loja, vai em cache.
 // - contexto do turno: hora, loja aberta ou não, origem e o carro do anúncio. Muda a cada vez, então vai
 //   junto da última mensagem do lead e nunca no sistema (qualquer byte diferente ali invalida o cache).
+import { type Calendario, fechadoNoDia } from "./feriados.ts";
 
 export type Loja = {
   id: string; nome: string; voz: string; endereco: string;
@@ -25,24 +26,35 @@ const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", curren
 export function agoraSP(d = new Date()) {
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Sao_Paulo", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
-    day: "2-digit", month: "2-digit",
+    day: "2-digit", month: "2-digit", year: "numeric",
   }).formatToParts(d).map((x) => [x.type, x.value]));
   const dia = DIAS[["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(p.weekday)];
-  return { dia, hhmm: `${p.hour}:${p.minute}`, data: `${p.day}/${p.month}` };
+  return { dia, hhmm: `${p.hour}:${p.minute}`, data: `${p.day}/${p.month}`, iso: `${p.year}-${p.month}-${p.day}` };
 }
 
-/* loja aberta agora? se não, quando abre ("amanhã às 08:00"), que é quando o vendedor recebe o lead */
-export function situacaoHorario(horario: Loja["horario"], d = new Date()) {
-  const { dia, hhmm } = agoraSP(d);
-  const hoje = horario[dia];
-  if (hoje && hhmm >= hoje[0] && hhmm < hoje[1]) return { aberta: true, abre: null, texto: `loja aberta até ${hoje[1]}` };
-  if (hoje && hhmm < hoje[0]) return { aberta: false, abre: `hoje às ${hoje[0]}`, texto: `loja fechada; abre hoje às ${hoje[0]}` };
+/* loja aberta agora? se não, quando abre ("amanhã às 08:00"), que é quando o vendedor recebe o lead.
+   Feriado conta como dia fechado (feriados.ts), e o texto diz qual é, para a Bia não convidar a pessoa para esse dia. */
+export function situacaoHorario(horario: Loja["horario"], d = new Date(), cal: Calendario = {}) {
+  const { dia, hhmm, iso } = agoraSP(d);
+  const feriadoHoje = fechadoNoDia(iso, cal);
+  const hoje = feriadoHoje ? null : horario[dia];
+  /* feriados dos próximos 7 dias em que a loja abriria: entram no texto para a Bia não marcar visita neles */
+  const pulados: string[] = [];
   for (let i = 1; i <= 7; i++) {
-    const prox = DIAS[(DIAS.indexOf(dia) + i) % 7];
-    const h = horario[prox];
+    const outro = agoraSP(new Date(d.getTime() + i * 864e5));
+    const motivo = fechadoNoDia(outro.iso, cal);
+    if (motivo && horario[outro.dia]) pulados.push(`${NOME_DIA[outro.dia]}, ${outro.data}, a loja não abre (${motivo})`);
+  }
+  const aviso = (feriadoHoje ? [`hoje é feriado (${feriadoHoje}) e a loja não abre`] : []).concat(pulados).map((s) => `; ${s}`).join("");
+  if (hoje && hhmm >= hoje[0] && hhmm < hoje[1]) return { aberta: true, abre: null, texto: `loja aberta até ${hoje[1]}${aviso}` };
+  if (hoje && hhmm < hoje[0]) return { aberta: false, abre: `hoje às ${hoje[0]}`, texto: `loja fechada; abre hoje às ${hoje[0]}${aviso}` };
+  for (let i = 1; i <= 14; i++) {
+    const outro = agoraSP(new Date(d.getTime() + i * 864e5));
+    const h = fechadoNoDia(outro.iso, cal) ? null : horario[outro.dia];
     if (h) {
-      const abre = `${i === 1 ? "amanhã" : NOME_DIA[prox]} às ${h[0]}`;
-      return { aberta: false, abre, texto: `loja fechada; abre ${abre}` };
+      const quando = i === 1 ? "amanhã" : i < 7 ? NOME_DIA[outro.dia] : `${NOME_DIA[outro.dia]}, ${outro.data},`;
+      const abre = `${quando} às ${h[0]}`;
+      return { aberta: false, abre, texto: `loja fechada; abre ${abre}${aviso}` };
     }
   }
   return { aberta: false, abre: null, texto: "horário da loja não cadastrado; não prometa quando uma pessoa retoma" };
@@ -139,7 +151,7 @@ Para a pessoa, quem atende na loja é sempre "consultor", nunca "vendedor".
 
 # Fora do horário
 
-A loja fechada não muda o seu trabalho: responda, tire as dúvidas com a ficha e faça a triagem inteira, igual ao horário comercial. Só não prometa atendimento humano imediato. Se perguntarem se tem alguém agora, diga que o time volta na abertura, com o dia e a hora do contexto. Não convide para ir à loja num dia em que ela está fechada.
+A loja fechada não muda o seu trabalho: responda, tire as dúvidas com a ficha e faça a triagem inteira, igual ao horário comercial. Só não prometa atendimento humano imediato. Se perguntarem se tem alguém agora, diga que o time volta na abertura, com o dia e a hora do contexto. Não convide para ir à loja num dia em que ela está fechada. Feriado é dia fechado: quando o contexto disser que hoje ou outro dia é feriado e a loja não abre, nunca combine visita nesse dia, e se a pessoa quiser vir ou perguntar se tem alguém, diga que é feriado e quando a loja volta a abrir.
 
 # O que você nunca faz (é contrato da loja, não estilo)
 

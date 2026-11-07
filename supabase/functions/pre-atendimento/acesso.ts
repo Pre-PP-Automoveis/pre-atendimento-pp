@@ -34,4 +34,6 @@ export const senhaPadrao = () => "pp" + String(crypto.getRandomValues(new Uint32
 /* errou 10 vezes seguidas: o usuário fica 15 minutos sem conseguir entrar */
 export const MAX_FALHAS = 10;
 export const BLOQUEIO_MIN = 15;
-export const SESSAO_DIAS = 30;
+/* entrou uma vez, fica entrado (Kauan, 07/11/2026): com 30 dias, Rayan e Brendon caíram em 06/11 e o rodízio girou sem
+   ninguém ver o painel. A sessão sai do aparelho só com "Sair" ou com senha nova dada pelo gerente, que derruba todas. */
+export const SESSAO_DIAS = 3650;

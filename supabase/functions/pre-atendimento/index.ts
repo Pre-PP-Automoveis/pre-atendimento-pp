@@ -358,7 +358,7 @@ async function lembrarLead(loja: Linha, conversa: Linha) {
   const { data: ultimoRobo } = await admin.from("pa_mensagens").select("criado_em").eq("conversa_id", conversa.id).eq("autor", "robo")
     .order("id", { ascending: false }).limit(1).maybeSingle();
   if (ultimoRobo && Date.now() - new Date(ultimoRobo.criado_em).getTime() < LEMBRETE_MS) return;
-  const abre = situacaoHorario(loja.horario ?? {}).abre;
+  const abre = situacaoHorario(loja.horario ?? {}, new Date(), loja).abre;
   const onde = ondeContinua(loja.numero_atendimento);
   const texto = conversa.primeira_acao_humana_em
     ? `Seu atendimento continua ${onde}. É por lá que o consultor fala com você.`
@@ -390,7 +390,7 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
   if (depoisDaPassagem && soConfirmacao(historico ?? [])) return;
   const primeiroTurno = !conversa.respondido_robo_em;
   const messages = montarMensagens(historico ?? [], contextoTurno({
-    agora: agoraSP(), horario: situacaoHorario(loja.horario ?? {}).texto, canal: conversa.origem,
+    agora: agoraSP(), horario: situacaoHorario(loja.horario ?? {}, new Date(), loja).texto, canal: conversa.origem,
     veiculoAnuncio: conversa.origem_detalhe?.veiculo_texto ?? null, ficha, primeiroTurno, nome: conversa.lead_nome,
     notas: [...notasDaConversa(historico ?? [], loja.endereco, primeiroNome(conversa.lead_nome) || null), ...[notaDeCor(historico ?? [], veiculos)].filter((n): n is string => !!n),
       ...(depoisDaPassagem ? [notaDepoisDaPassagem(conversa.estado === "fila")] : [])],
@@ -412,7 +412,7 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
           if (agora?.primeira_acao_humana_em) return null;
           await admin.from("pa_conversas").update({ resumo: { ...e, visita: visitaReal(e.visita, historico ?? [], loja.endereco) } }).eq("id", conversaId);
           await admin.from("pa_mensagens").insert({ conversa_id: conversaId, autor: "sistema", texto: `resumo atualizado pela Bia (${e.motivo})` });
-          const h = situacaoHorario(loja.horario ?? {});
+          const h = situacaoHorario(loja.horario ?? {}, new Date(), loja);
           return { ok: true, vendedor: null, atualizado: true, fila: conversa.estado === "fila", abre: h.abre, onde: ondeContinua(loja.numero_atendimento) };
         }
         /* o cron dos 15 minutos ou o time podem ter levado a conversa enquanto a Claude pensava */
@@ -477,7 +477,7 @@ async function encaminhar(loja: Linha, conversa: Linha, e: Encaminhamento): Prom
   const { data: equipe } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id).eq("admin", false);
   const pedida = pessoaPedida(equipe ?? [], e.consultor);
   const dono = pedida ? { vendedor_id: pedida.id, fixado_por: "lead" } : {};
-  const horario = situacaoHorario(loja.horario ?? {});
+  const horario = situacaoHorario(loja.horario ?? {}, new Date(), loja);
   if (!horario.aberta) {
     await admin.from("pa_conversas").update({ estado: "fila", fila_em: new Date().toISOString(), resumo: e, ...dono }).eq("id", conversa.id);
     await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema", texto: `na fila até a abertura (${e.motivo})${pedida ? `, pediu ${pedida.nome}` : ""}` });
@@ -526,7 +526,7 @@ async function despacharFila() {
   const { data: lojas } = await admin.from("pa_lojas").select("*").or("ativo.eq.true,numeros_teste.not.is.null");
   let total = 0;
   for (const loja of lojas ?? []) {
-    if (!situacaoHorario(loja.horario ?? {}).aberta) continue;
+    if (!situacaoHorario(loja.horario ?? {}, new Date(), loja).aberta) continue;
     const { data: fila } = await admin.from("pa_conversas").select("*").eq("loja_id", loja.id).eq("estado", "fila").order("fila_em");
     for (const conversa of fila ?? []) {
       const r = await avisarVendedor(loja, conversa).catch((err) => ({ ok: false, erro: String(err) }));
@@ -543,7 +543,7 @@ async function repassar() {
   const { data: lojas } = await admin.from("pa_lojas").select("*").or("ativo.eq.true,numeros_teste.not.is.null");
   let repassados = 0, escalados = 0;
   for (const loja of lojas ?? []) {
-    if (!situacaoHorario(loja.horario ?? {}).aberta) continue;
+    if (!situacaoHorario(loja.horario ?? {}, new Date(), loja).aberta) continue;
     const { data: pendentes } = await admin.from("pa_conversas").select("*").eq("loja_id", loja.id)
       .eq("estado", "encaminhada").is("primeira_acao_humana_em", null).is("escalado_em", null).is("fixado_por", null).not("avisado_em", "is", null);
     const { data: equipe } = await admin.from("pa_vendedores").select("*").eq("loja_id", loja.id);
@@ -700,7 +700,7 @@ async function lerPainel(sessao: string): Promise<Resposta> {
   const prazo = loja.prazo_repasse_min ?? 15;
   const hojeSP = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
   const inicioDoDia = new Date(`${hojeSP}T00:00:00-03:00`).toISOString();
-  const cabecalho = { loja: loja.nome, numero_atendimento: loja.numero_atendimento ?? null, prazo_repasse_min: prazo, horario: situacaoHorario(loja.horario ?? {}).texto, atualizado_em: new Date().toISOString(), nome: pessoa.nome, eu: pessoa.id };
+  const cabecalho = { loja: loja.nome, numero_atendimento: loja.numero_atendimento ?? null, prazo_repasse_min: prazo, horario: situacaoHorario(loja.horario ?? {}, new Date(), loja).texto, atualizado_em: new Date().toISOString(), nome: pessoa.nome, eu: pessoa.id };
   const meus = painelConsultor(conversas ?? [], pessoa.id, nomes, prazo);
   if (!pessoa.gerente) return { status: 200, corpo: { ...cabecalho, quem: "consultor", ...meus } };
   return { status: 200, corpo: {
@@ -738,6 +738,27 @@ async function lerConversa(sessao: string, id: string): Promise<Resposta> {
   if (!conversa) return { status: 404, corpo: { erro: "Conversa não encontrada." } };
   const { data: mensagens } = await admin.from("pa_mensagens").select("autor, tipo, texto, custo_usd, criado_em").eq("conversa_id", id).order("id");
   return { status: 200, corpo: { conversa, mensagens: mensagens ?? [] } };
+}
+
+/* alguém ativo do time desta loja, que não seja o admin da Moza */
+async function pessoaDaLoja(id: unknown, lojaId: string) {
+  const paraId = typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id) ? id : null;
+  const { data } = paraId ? await admin.from("pa_vendedores").select("*").eq("id", paraId).eq("loja_id", lojaId).eq("ativo", true).eq("admin", false).maybeSingle() : { data: null };
+  return data as Linha | null;
+}
+
+/* passar um lead para alguém: com o robô ou na fila da noite, o robô sai da conversa na hora e quem recebe continua pelo aplicativo */
+async function passarConversa(conversa: Linha, para: Linha, gerente: Linha, agora: string) {
+  const tentativas: string[] = conversa.tentativas ?? [];
+  await admin.from("pa_conversas").update({
+    estado: "encaminhada", vendedor_id: para.id, fixado_por: "gerente", transferido_em: agora, avisado_em: agora, escalado_em: null,
+    encaminhado_em: conversa.encaminhado_em ?? agora, tentativas: tentativas.includes(para.id) ? tentativas : [...tentativas, para.id],
+    resumo: conversa.resumo ?? { motivo: "passado_pelo_gerente", consultor: "nenhum", veiculo: conversa.origem === "Tráfego Pago" ? "anúncio pago (ver na conversa)" : conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
+      troca: "ver na conversa", pagamento: "ver na conversa", visita: "ver na conversa", pendencias: "ver na conversa", resumo: "Passado pelo gerente; a conversa está no WhatsApp da loja." },
+  }).eq("id", conversa.id);
+  const quem = primeiroNome(gerente.nome);
+  await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema",
+    texto: para.id === gerente.id ? `${quem} puxou o lead para si` : `${quem} passou o lead para ${para.nome}` });
 }
 
 /* ações do gerente: passar um lead (inclusive para ele mesmo), ligar e desligar alguém do rodízio, marcar "não é lead" */
@@ -784,24 +805,26 @@ async function agirPainel(sessao: string, pedido: Linha): Promise<Resposta> {
     return { status: 200, corpo: { ok: true, nome: pessoa.nome, usuario: pessoa.usuario, senha } };
   }
 
+  /* vários leads de uma vez para a mesma pessoa (Kauan, 07/11/2026): o gerente marca os leads no painel e escolhe quem recebe */
+  if (pedido.acao === "passar_varios") {
+    const para = await pessoaDaLoja(pedido.para, gerente.loja_id);
+    if (!para) return { status: 404, corpo: { erro: "Pessoa não encontrada." } };
+    const ids = Array.isArray(pedido.conversa_ids) ? [...new Set(pedido.conversa_ids.map(uuid).filter(Boolean))].slice(0, 100) as string[] : [];
+    if (!ids.length) return { status: 400, corpo: { erro: "Marque pelo menos um lead." } };
+    const { data: conversas } = await admin.from("pa_conversas").select("*").in("id", ids).eq("loja_id", gerente.loja_id).neq("estado", "encerrada");
+    for (const c of conversas ?? []) await passarConversa(c, para, gerente, agora);
+    const passados = conversas?.length ?? 0;
+    return { status: 200, corpo: { ok: true, passados, fora: ids.length - passados, para: para.nome } };
+  }
+
   const id = uuid(pedido.conversa_id);
   const { data: conversa } = id ? await admin.from("pa_conversas").select("*").eq("id", id).eq("loja_id", gerente.loja_id).neq("estado", "encerrada").maybeSingle() : { data: null };
   if (!conversa) return { status: 404, corpo: { erro: "Esse lead não está mais aberto. Atualize o painel." } };
 
   if (pedido.acao === "passar") {
-    const paraId = uuid(pedido.para);
-    const { data: para } = paraId ? await admin.from("pa_vendedores").select("*").eq("id", paraId).eq("loja_id", gerente.loja_id).eq("ativo", true).eq("admin", false).maybeSingle() : { data: null };
+    const para = await pessoaDaLoja(pedido.para, gerente.loja_id);
     if (!para) return { status: 404, corpo: { erro: "Pessoa não encontrada." } };
-    const tentativas: string[] = conversa.tentativas ?? [];
-    /* com o robô ou na fila da noite: o robô sai da conversa na hora e quem recebe continua pelo aplicativo */
-    await admin.from("pa_conversas").update({
-      estado: "encaminhada", vendedor_id: para.id, fixado_por: "gerente", transferido_em: agora, avisado_em: agora, escalado_em: null,
-      encaminhado_em: conversa.encaminhado_em ?? agora, tentativas: tentativas.includes(para.id) ? tentativas : [...tentativas, para.id],
-      resumo: conversa.resumo ?? { motivo: "passado_pelo_gerente", consultor: "nenhum", veiculo: conversa.origem === "Tráfego Pago" ? "anúncio pago (ver na conversa)" : conversa.origem_detalhe?.veiculo_texto || "ver na conversa",
-        troca: "ver na conversa", pagamento: "ver na conversa", visita: "ver na conversa", pendencias: "ver na conversa", resumo: "Passado pelo gerente; a conversa está no WhatsApp da loja." },
-    }).eq("id", conversa.id);
-    await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "sistema",
-      texto: para.id === gerente.id ? `${quem} puxou o lead para si` : `${quem} passou o lead para ${para.nome}` });
+    await passarConversa(conversa, para, gerente, agora);
     return { status: 200, corpo: { ok: true } };
   }
 
