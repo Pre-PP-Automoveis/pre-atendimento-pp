@@ -774,10 +774,25 @@ function botaoAvisos() {
   b.textContent = pushAtivo ? "Avisos de lead ligados" : somLigado && !temPush ? "Som de lead ligado" : "Ativar avisos de lead";
 }
 
-/* inscreve este aparelho no aviso de lead novo; pedir = true só quando a pessoa toca no botão */
+/* pedir = true: a pessoa tocou em "Ativar avisos de lead". Cadastra o celular e o servidor manda a boas-vindas.
+   pedir = false: só confere, ao abrir o painel, se este celular continua cadastrado. Se o cadastro foi apagado
+   (reset), cancela a inscrição antiga e o painel volta a mostrar o convite para ativar. */
 function inscreverAvisos(pedir) {
   if (!temPush || !sessao || Notification.permission === "denied") return Promise.resolve(false);
-  var permissao = Notification.permission === "granted" ? Promise.resolve("granted") : pedir ? Notification.requestPermission() : Promise.resolve("default");
+  if (!pedir) {
+    if (Notification.permission !== "granted") return Promise.resolve(false).then(function (ok) { botaoAvisos(); return ok; });
+    return navigator.serviceWorker.getRegistration().then(function (reg) { return reg ? reg.pushManager.getSubscription() : null; })
+      .then(function (insc) {
+        if (!insc) return false;
+        return chamar("push", { inscricao: insc.toJSON(), conferir: true }).then(function (res) {
+          if (res.ok && res.j.registrado) return true;
+          return insc.unsubscribe().then(function () { return false; }, function () { return false; });
+        });
+      })
+      .then(function (ok) { pushAtivo = !!ok; return pushAtivo; })
+      .catch(function () { return false; }).then(function (ok) { botaoAvisos(); return ok; });
+  }
+  var permissao = Notification.permission === "granted" ? Promise.resolve("granted") : Notification.requestPermission();
   return permissao.then(function (p) {
     if (p !== "granted") return false;
     return navigator.serviceWorker.register("/sw.js").then(function () { return navigator.serviceWorker.ready; })
@@ -788,7 +803,7 @@ function inscreverAvisos(pedir) {
           });
         });
       })
-      .then(function (insc) { return chamar("push", { inscricao: insc.toJSON(), teste: !!pedir }); })
+      .then(function (insc) { return chamar("push", { inscricao: insc.toJSON(), ativar: true }); })
       .then(function (res) { pushAtivo = !!res.ok; return pushAtivo; });
   }).catch(function () { return false; }).then(function (ok) { botaoAvisos(); return ok; });
 }
@@ -806,7 +821,7 @@ document.getElementById("som").addEventListener("click", function () {
   if (Notification.permission === "denied") { alert("Os avisos estão bloqueados para este site. Libere as notificações do painel nas configurações do celular e toque de novo."); return; }
   inscreverAvisos(true).then(function (ok) {
     desenhar();
-    if (ok) alert("Pronto! Chegou um aviso de teste? É assim que cada lead novo vai aparecer neste celular, mesmo com o painel fechado.");
+    if (ok) alert("Avisos ligados! Em instantes chega uma notificação de boas-vindas neste celular. Se ela aparecer, está tudo funcionando: cada lead novo vai chegar assim, mesmo com o painel fechado.");
     else if (Notification.permission !== "granted") alert("Para receber os avisos, toque em Permitir quando o celular perguntar.");
   });
 });

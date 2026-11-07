@@ -687,14 +687,29 @@ async function guardarPush(sessao: string, pedido: Linha): Promise<Resposta> {
   const valida = i && typeof i.endpoint === "string" && /^https:\/\//.test(i.endpoint) && i.endpoint.length < 1000 &&
     typeof i.keys?.p256dh === "string" && typeof i.keys?.auth === "string" && i.keys.p256dh.length < 200 && i.keys.auth.length < 100;
   if (!valida) return { status: 400, corpo: { erro: "Inscrição de aviso inválida." } };
+  /* ao abrir o painel, o celular só confere se continua cadastrado; não se cadastra sozinho. Assim, apagar o
+     registro de alguém (reset) faz o painel voltar a pedir "Ativar avisos de lead", com a boas-vindas de novo. */
+  if (pedido.conferir) {
+    const { data: atual } = await admin.from("pa_push").select("vendedor_id").eq("endpoint", i.endpoint).maybeSingle();
+    return { status: 200, corpo: { ok: atual?.vendedor_id === pessoa.id, registrado: atual?.vendedor_id === pessoa.id } };
+  }
   const inscricao = { endpoint: i.endpoint, keys: { p256dh: i.keys.p256dh, auth: i.keys.auth } };
   await admin.from("pa_push").upsert({ endpoint: i.endpoint, vendedor_id: pessoa.id, inscricao });
-  /* quem acabou de ligar recebe um aviso de teste na hora, para ver que chega */
-  if (pedido.teste) {
-    const r = await enviarAvisos([{ endpoint: i.endpoint, inscricao }], { titulo: "Avisos ligados", corpo: "É assim que cada lead novo vai aparecer neste celular.", url: "/", tag: "teste" });
-    return { status: 200, corpo: { ok: true, teste: r.enviados === 1 } };
-  }
-  return { status: 200, corpo: { ok: true } };
+  /* só quem tocou em "Ativar" recebe a boas-vindas (o painel antigo, ainda aberto em algum celular, também
+     manda o cadastro ao abrir, sem "ativar", e esse não deve receber notificação) */
+  if (!pedido.ativar && !pedido.teste) return { status: 200, corpo: { ok: true } };
+  /* boas-vindas na hora, pelo mesmo caminho do aviso de lead: se ela aparecer, o celular está recebendo */
+  const r = await enviarAvisos([{ endpoint: i.endpoint, inscricao }], {
+    titulo: `Boas-vindas, ${primeiroNome(pessoa.nome)}!`,
+    corpo: `Avisos ligados. A partir de agora, cada lead novo da ${(await nomeDaLoja(pessoa.loja_id))} aparece aqui, mesmo com o painel fechado.`,
+    url: "/", tag: "boas-vindas",
+  });
+  return { status: 200, corpo: { ok: true, boas_vindas: r.enviados === 1 } };
+}
+
+async function nomeDaLoja(lojaId: string) {
+  const { data } = await admin.from("pa_lojas").select("nome").eq("id", lojaId).maybeSingle();
+  return data?.nome ?? "loja";
 }
 
 /* quantos celulares de cada pessoa ligaram o aviso de lead novo */
