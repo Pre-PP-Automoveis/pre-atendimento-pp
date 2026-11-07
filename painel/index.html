@@ -182,6 +182,11 @@
     .chave { min-width: 0; }
     table { font-size: 13px; }
   }
+  .convite { background: var(--p-urg-f); border: 1px solid var(--p-marca); border-radius: 12px; padding: 14px; display: grid; gap: 10px; }
+  .convite b { font-size: 16px; }
+  .convite p { margin: 0; color: var(--p-tinta); font-size: 14px; }
+  .convite ol { margin: 0; padding-left: 20px; font-size: 14px; display: grid; gap: 4px; }
+  .convite .abrir { border: 0; cursor: pointer; font: 600 16px/1 var(--f-corpo); justify-self: start; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   a:focus-visible, button:focus-visible, summary:focus-visible, select:focus-visible { outline: 2px solid var(--p-acao); outline-offset: 2px; }
 </style>
@@ -349,7 +354,8 @@ function recolhido(titulo, itens, render, aberto) {
 function rodizio() {
   var naRoda = dados.equipe.filter(function (e) { return e.no_rodizio; });
   var linhas = dados.equipe.map(function (e) {
-    var info = [e.proximo ? "próximo da vez" : "", e.esperando ? e.esperando + " esperando resposta" : ""].filter(Boolean).join(" · ");
+    var info = [e.proximo ? "próximo da vez" : "", e.esperando ? e.esperando + " esperando resposta" : "",
+      e.avisos ? "aviso no celular ligado" : "<span style=\"color:var(--p-urg)\">aviso no celular desligado</span>"].filter(Boolean).join(" · ");
     return '<div><span class="quem"><b>' + esc(e.nome) + (e.id === dados.eu ? " (você)" : "") + "</b>" + (info ? "<small>" + info + "</small>" : "") + "</span>" +
       '<span class="botoes">' + (e.id === dados.eu ? "" : '<button class="sutil" type="button" data-acao="nova_senha" data-vend="' + e.id + '" data-nome="' + esc(e.nome) + '">Nova senha</button>') +
       '<button class="chave" type="button" aria-pressed="' + e.no_rodizio + '" data-acao="rodizio" data-vend="' + e.id + '" data-valor="' + !e.no_rodizio + '" data-nome="' + esc(e.nome) + '">' +
@@ -357,7 +363,7 @@ function rodizio() {
   }).join("");
   return "<h2>Rodízio</h2>" + (naRoda.length ? "" : '<p class="aviso">Ninguém está no rodízio. Os leads ficam parados até alguém entrar.</p>') +
     '<div class="roda">' + linhas + "</div>" +
-    '<p class="nota">Quem está fora do rodízio não recebe lead automático, mas recebe o que você passar e o cliente que pedir a pessoa pelo nome.</p>';
+    '<p class="nota">Quem está fora do rodízio não recebe lead automático, mas recebe o que você passar e o cliente que pedir a pessoa pelo nome. Quem está com o aviso desligado só vê lead novo abrindo o painel: cada pessoa liga o aviso uma vez, no próprio celular.</p>';
 }
 
 /* ===== administração (só o admin da Moza recebe estes dados) ===== */
@@ -419,7 +425,7 @@ function desenhar() {
   if (!dados) return;
   /* não redesenha com uma lista de "passar para" aberta na mão do gerente */
   if (ocupado || (document.activeElement && document.activeElement.tagName === "SELECT" && conteudo.contains(document.activeElement))) return;
-  var html = "";
+  var html = conviteAvisos();
   leadsNaTela = {};
   if (dados.quem === "consultor") {
     document.getElementById("titulo").textContent = "Olá, " + dados.nome.split(" ")[0];
@@ -523,7 +529,7 @@ function carregar() {
       if (!res.ok) { conteudo.innerHTML = '<p class="aviso">' + esc(res.j.erro || "Não foi possível abrir o painel.") + "</p>"; return; }
       document.getElementById("botoes").hidden = false;
       dados = res.j;
-      if (!avisosConferidos) { avisosConferidos = true; inscreverAvisos(false); }
+      if (!avisosConferidos) { avisosConferidos = true; inscreverAvisos(false).then(function () { avisosVerificados = true; desenhar(); }); }
       var ids = esperando().map(function (l) { return l.id; });
       if (vistos) avisar(ids.filter(function (id) { return vistos.indexOf(id) < 0; }).length);
       vistos = ids;
@@ -630,7 +636,9 @@ document.addEventListener("click", function (ev) {
   var b = ev.target.closest("button[data-acao]");
   if (!b || ocupado) return;
   var nome = b.getAttribute("data-nome");
-  if (b.dataset.acao === "selecionar") {
+  if (b.dataset.acao === "ligar-avisos") {
+    document.getElementById("som").click();
+  } else if (b.dataset.acao === "selecionar") {
     selecionando = !selecionando; marcados = []; desenhar();
   } else if (b.dataset.acao === "atendi") {
     agir({ acao: "atendi", conversa_id: b.dataset.id });
@@ -704,7 +712,7 @@ document.getElementById("sair").addEventListener("click", function () {
     fetch(FUNCAO + "sair", { method: "POST", headers: { "authorization": "Bearer " + s, "content-type": "application/json" }, body: JSON.stringify(endpoint ? { endpoint: endpoint } : {}) }).catch(function () {});
   }
   telaDeEntrada();
-  pushAtivo = false; avisosConferidos = false; botaoAvisos();
+  pushAtivo = false; avisosConferidos = false; avisosVerificados = false; botaoAvisos();
   /* quem sai para de receber aviso neste celular */
   if (!temPush) { avisarSaida(); return; }
   navigator.serviceWorker.getRegistration().then(function (reg) { return reg ? reg.pushManager.getSubscription() : null; })
@@ -732,6 +740,21 @@ document.getElementById("form-senha").addEventListener("submit", function (ev) {
 });
 
 /* ===== avisos de lead novo no celular (Web Push), para todo o time ===== */
+/* convite que fica no topo até a pessoa ligar o aviso neste celular: só aparece depois de conferir, para não piscar */
+function conviteAvisos() {
+  if (!avisosVerificados || pushAtivo) return "";
+  if (temPush && Notification.permission === "denied")
+    return '<div class="convite"><b>Os avisos de lead estão bloqueados neste celular</b><p>Libere as notificações do painel nas configurações do celular e toque em "Ativar avisos de lead" no topo.</p></div>';
+  if (temPush)
+    return '<div class="convite"><b>Receba cada lead novo no celular</b><p>Mesmo com o painel fechado, o celular avisa na hora que um cliente chama. Toque no botão e depois em Permitir.</p>' +
+      '<button class="abrir" type="button" data-acao="ligar-avisos">Ativar avisos de lead</button></div>';
+  if (iOS && !instalado)
+    return '<div class="convite"><b>Receba cada lead novo no iPhone</b><p>No iPhone, o aviso só chega com o painel na Tela de Início. Leva 30 segundos:</p>' +
+      '<ol><li>Toque em <b>Compartilhar</b> (o quadrado com a seta para cima, embaixo no Safari)</li><li>Toque em <b>Adicionar à Tela de Início</b> e depois em Adicionar</li><li>Feche o Safari, abra o painel pelo ícone <b>PP37</b> e toque em <b>Ativar avisos de lead</b></li></ol></div>';
+  return '<div class="convite"><b>Este navegador não recebe aviso de lead</b><p>Abra o painel no Chrome (Android) ou instale na Tela de Início (iPhone) para receber cada lead novo no celular.</p></div>';
+}
+var avisosVerificados = false;
+
 var pushAtivo = false, avisosConferidos = false;
 var iOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 var instalado = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
@@ -782,6 +805,7 @@ document.getElementById("som").addEventListener("click", function () {
   }
   if (Notification.permission === "denied") { alert("Os avisos estão bloqueados para este site. Libere as notificações do painel nas configurações do celular e toque de novo."); return; }
   inscreverAvisos(true).then(function (ok) {
+    desenhar();
     if (ok) alert("Pronto! Chegou um aviso de teste? É assim que cada lead novo vai aparecer neste celular, mesmo com o painel fechado.");
     else if (Notification.permission !== "granted") alert("Para receber os avisos, toque em Permitir quando o celular perguntar.");
   });

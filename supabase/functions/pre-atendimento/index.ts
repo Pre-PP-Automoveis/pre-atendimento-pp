@@ -697,6 +697,15 @@ async function guardarPush(sessao: string, pedido: Linha): Promise<Resposta> {
   return { status: 200, corpo: { ok: true } };
 }
 
+/* quantos celulares de cada pessoa ligaram o aviso de lead novo */
+async function avisosPorPessoa(ids: string[]) {
+  const conta = new Map<string, number>();
+  if (!ids.length) return conta;
+  const { data } = await admin.from("pa_push").select("vendedor_id").in("vendedor_id", ids);
+  for (const r of data ?? []) conta.set(r.vendedor_id, (conta.get(r.vendedor_id) ?? 0) + 1);
+  return conta;
+}
+
 /* lead novo chegou: avisa no celular todo mundo ativo da loja que ligou o aviso no painel */
 async function avisarLeadNovo(loja: Linha, conversa: Linha) {
   const { data: equipe } = await admin.from("pa_vendedores").select("id").eq("loja_id", loja.id).eq("ativo", true);
@@ -747,7 +756,7 @@ async function lerPainel(sessao: string): Promise<Resposta> {
   return { status: 200, corpo: {
     ...cabecalho, quem: "gerente", voce: meus,
     ...painelGerente(conversas ?? [], nomes, prazo, Date.now(), inicioDoDia),
-    equipe: equipeDoPainel((equipe ?? []).filter((v: Linha) => !v.admin), conversas ?? []),
+    equipe: equipeDoPainel((equipe ?? []).filter((v: Linha) => !v.admin), conversas ?? [], await avisosPorPessoa((equipe ?? []).map((v: Linha) => v.id))),
     ...(pessoa.admin ? { admin: await dadosDoAdmin(loja, nomes, inicioDoDia) } : {}),
   } };
 }
