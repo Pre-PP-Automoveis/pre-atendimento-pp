@@ -1,7 +1,7 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { rotuloAudio, rotuloFoto } from "./rotulos.ts";
-import { linhaFicha, linkFotos, type Veiculo } from "./prompt.ts";
-import { polir, soLinksDaFicha } from "./conversa.ts";
+import { linhaFicha, linkFotos, notaDeCor, type Veiculo } from "./prompt.ts";
+import { polir, rodarTurno, soLinksDaFicha } from "./conversa.ts";
 import { painelGerente } from "./painel.ts";
 
 const gol: Veiculo = { id: "11111111-aaaa", titulo: "Volkswagen Gol 1.6 (G5) (Flex) 2011/2012 flex", disponivel: true, preco: 34900, km: 150000,
@@ -50,4 +50,37 @@ Deno.test("carro sem foto: a Bia não fala de cadastro, diz que o consultor mand
   assertEquals(polir("O Celta Spirit 2010 não tem fotos cadastradas aqui comigo, mas o consultor consegue te mandar as imagens dele.", h, false),
     "O consultor consegue te mandar as fotos dele.");
   assertEquals(polir("Temos sim, por R$ 27.900.", h, false), "Temos sim, por R$ 27.900.");
+});
+
+Deno.test("recusada por falta de convite, a Bia responde a pessoa em vez de encaminhar de novo", async () => {
+  const pedidos: Record<string, unknown>[] = [];
+  const chamada = { type: "tool_use", id: "t1", name: "encaminhar_ao_vendedor", input: { motivo: "qualificado", consultor: "nenhum", veiculo: "Gol", troca: "Palio", pagamento: "financiamento", visita: "não convidado", pendencias: "nenhuma", resumo: "x", primeira_mensagem: "y" } };
+  const respostas = [
+    { stop_reason: "tool_use", content: [{ type: "text", text: "Temos sim, por R$ 34.900." }, chamada], usage: { input_tokens: 1, output_tokens: 1 } },
+    { stop_reason: "end_turn", content: [{ type: "text", text: "Temos sim, o Gol 2012 por R$ 34.900. Fica o convite: Rua Juquiá, 275." }], usage: { input_tokens: 1, output_tokens: 1 } },
+  ];
+  // deno-lint-ignore no-explicit-any
+  const cliente = { messages: { create: (r: any) => { pedidos.push(r); return Promise.resolve(respostas.shift()); } } } as any;
+  let encaminhou = false;
+  const t = await rodarTurno({ cliente, modelo: "claude-sonnet-5", sistema: "s", messages: [{ role: "user", content: "oi" }],
+    validar: () => "Não encaminhe ainda. Convide com o endereço.", aoEncaminhar: () => { encaminhou = true; return Promise.resolve({ ok: true, vendedor: null }); } });
+  assertEquals(encaminhou, false);
+  assertEquals(t.textos, ["Temos sim, o Gol 2012 por R$ 34.900. Fica o convite: Rua Juquiá, 275."]);
+  assertEquals((pedidos[1] as { tool_choice?: { type: string } }).tool_choice?.type, "none");
+  assertEquals("tool_choice" in pedidos[0], false);
+  /* a resposta recusada volta ao modelo sem o texto, para ele responder de novo por inteiro */
+  // deno-lint-ignore no-explicit-any
+  const recusada = (pedidos[1] as any).messages.find((m: any) => m.role === "assistant");
+  // deno-lint-ignore no-explicit-any
+  assertEquals(recusada.content.some((b: any) => b.type === "text"), false);
+});
+
+Deno.test("a cor vale para o carro da frase, não para o carro da troca citado junto", () => {
+  const palio: Veiculo = { ...gol, id: "22222222-bbbb", titulo: "Fiat Palio Fire 1.0 2011/2012 flex", observacoes: "cor vermelho; câmbio manual" };
+  const nota = notaDeCor([{ autor: "lead", texto: "Vocês ainda têm aquele Gol branco 2012? Eu tenho um Palio 2010 para dar na troca." }], [gol, palio])!;
+  assertEquals(nota.includes("Palio"), false);
+  assertEquals(nota.includes("Gol"), true);
+  /* sem modelo na frase da cor, vale o que a pessoa já falou antes */
+  const antes = notaDeCor([{ autor: "lead", texto: "Tem Palio?" }, { autor: "robo", texto: "Temos." }, { autor: "lead", texto: "É vermelho?" }], [gol, palio])!;
+  assertEquals(antes.includes("Palio"), true);
 });

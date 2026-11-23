@@ -76,12 +76,16 @@ const norm = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u
 export function notaDeCor(historico: { autor: string; texto: string }[], estoque: Veiculo[]): string | null {
   const ultima = [...historico].reverse().find((m) => m.autor === "lead")?.texto ?? "";
   if (!CORES.test(ultima)) return null;
-  const falou = norm(historico.filter((m) => m.autor === "lead").map((m) => m.texto).join(" "));
   /* modelo = primeira palavra do título depois da marca ("Chevrolet CRUZE LT NB 2012/2013" -> "cruze") */
-  const citados = estoque.filter((v) => !soConsultor(v) && corDe(v)).filter((v) => {
+  const citadosEm = (texto: string) => estoque.filter((v) => !soConsultor(v) && corDe(v)).filter((v) => {
     const modelo = norm(v.titulo.split(/\s+/)[1] ?? "");
-    return modelo.length >= 2 && new RegExp(`\\b${modelo.replace(/[^a-z0-9-]/g, "")}\\b`).test(falou);
+    return modelo.length >= 2 && new RegExp(`\\b${modelo.replace(/[^a-z0-9-]/g, "")}\\b`).test(texto);
   });
+  /* a frase da cor cita um modelo ("tem aquele Gol branco?"): só ele conta. Senão o Palio da troca, citado na mesma
+     mensagem, virava "esse não é branco" (áudio de 23/11/2026). Sem modelo na frase, vale o que a pessoa já falou. */
+  const fraseDaCor = norm(ultima.split(/(?<=[.!?\n])\s*/).find((f) => CORES.test(f)) ?? "");
+  const naFrase = citadosEm(fraseDaCor);
+  const citados = naFrase.length ? naFrase : citadosEm(norm(historico.filter((m) => m.autor === "lead").map((m) => m.texto).join(" ")));
   if (!citados.length) return null;
   /* separa os da cor pedida dos outros: o modelo tendia a repetir a cor da pergunta para todos ("dois Cruze pretos") */
   const raiz = (c: string) => norm(c).slice(0, 4);

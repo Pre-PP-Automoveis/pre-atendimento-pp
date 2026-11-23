@@ -111,6 +111,10 @@ export async function rodarTurno(p: {
   validar?: (e: Encaminhamento) => string | null;
 }): Promise<Turno> {
   let recusas = 0;
+  /* depois de uma recusa (ainda falta o convite), a próxima resposta sai sem a ferramenta: a Bia tem de responder a pessoa.
+     Sem isso ela chamava de novo, passava ao consultor e só se despedia, sem responder o carro (cliente que manda tudo
+     no primeiro áudio, 23/11/2026). O encaminhamento fica para a próxima mensagem ou para o prazo de 15 minutos. */
+  let soTexto = false;
   const precos = PRECOS[p.modelo] ?? PRECOS["claude-sonnet-5"];
   const t: Turno = { textos: [], custo: 0, encaminhado: null, encaminhamento: null, interrompido: false };
   for (let volta = 0; volta < 3; volta++) {
@@ -121,6 +125,7 @@ export async function rodarTurno(p: {
       ...(p.modelo.startsWith("claude-haiku") ? {} : { output_config: { effort: "low" as const } }),
       system: [{ type: "text", text: p.sistema, cache_control: { type: "ephemeral", ttl: "1h" } }],
       tools: [ENCAMINHAR],
+      ...(soTexto ? { tool_choice: { type: "none" as const } } : {}),
       messages: p.messages,
     });
     const u = resp.usage;
@@ -136,7 +141,10 @@ export async function rodarTurno(p: {
     const objecao = recusas === 0 ? p.validar?.(e) ?? null : null;
     if (objecao) {
       recusas++;
-      p.messages.push({ role: "assistant", content: resp.content });
+      soTexto = true;
+      /* o texto da tentativa recusada não chega à pessoa: sai também do histórico, senão a Bia acha que já respondeu
+         (o preço do carro) e manda só o convite */
+      p.messages.push({ role: "assistant", content: resp.content.filter((b) => b.type !== "text") });
       p.messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: chamada.id, is_error: true, content: objecao }] });
       t.textos.length = 0;
       continue;

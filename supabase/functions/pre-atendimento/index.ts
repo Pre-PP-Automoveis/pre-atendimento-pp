@@ -14,8 +14,8 @@ import { ligarLoja } from "./ligacao.ts";
 import { abertura, aberturaCurta, notaDepoisDaPassagem, resumirParaConsultor, semONome, soConfirmacao, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, soLinksDaFicha, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 import { chavePublica, enviarAvisos } from "./push.ts";
-import { descreverFoto, servicoDeAudio, textoDaMidia } from "./midia.ts";
-import { rotuloFoto } from "./rotulos.ts";
+import { descreverFoto, servicoDeAudio, textoDaMidia, transcreverAudio } from "./midia.ts";
+import { rotuloAudio, rotuloFoto } from "./rotulos.ts";
 import { equipeDoPainel, painelAdmin, painelConsultor, painelGerente } from "./painel.ts";
 import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
 
@@ -204,9 +204,15 @@ Deno.serve(async (req) => {
     loja.equipe = await nomesDaEquipe(loja.id);
     /* sem estoque no pedido, usa o estoque real da loja */
     const { data: frota } = pedido.estoque ? { data: null } : await admin.from("pa_veiculos").select("*").eq("loja_id", loja.id).order("titulo");
-    /* foto no simulador: a mensagem "[foto:https://...]" passa pela mesma descrição da foto real (midia.ts) */
+    /* foto no simulador: a mensagem "[foto:https://...]" passa pela mesma descrição da foto real (midia.ts);
+       áudio: "[audio:audio/ogg;base64,...]" passa pela mesma transcrição do áudio real */
     for (const c of (pedido.cenarios ?? []) as { mensagens: string[] }[]) {
       c.mensagens = await Promise.all((c.mensagens ?? []).map(async (m) => {
+        const a = m.match(/^\[audio:([\w/.-]+);base64,([A-Za-z0-9+/=]+)\]$/);
+        if (a) {
+          const t = await transcreverAudio(Uint8Array.from(atob(a[2]), (ch) => ch.charCodeAt(0)), a[1]);
+          return t?.texto ? rotuloAudio(t.texto) : "[a pessoa mandou um áudio, que você não consegue ouvir]";
+        }
         const u = m.match(/^\[foto:(https:\/\/\S+)\]$/)?.[1];
         if (!u) return m;
         const r = await fetch(u);
