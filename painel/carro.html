@@ -49,6 +49,8 @@
   .aviso p { margin: 0; color: var(--apoio); }
   .carregando { color: var(--apoio); }
   @media (max-width: 640px) { .seta { display: none; } .miniaturas { display: none; } }
+  /* no computador a foto cabe na tela junto com o título e o botão */
+  @media (min-width: 641px) { .trilho { aspect-ratio: auto; height: min(60vh, 540px); } }
 </style>
 </head>
 <body>
