@@ -9,6 +9,7 @@ type Linha = Record<string, any>;
 export type LeadPainel = {
   id: string; nome: string; telefone: string; whatsapp_link: string;
   carro: string; origem: string; troca: string; pagamento: string; visita: string; pendencias: string; resumo: string;
+  mensagem: string | null; /* primeira mensagem pronta que a Bia escreveu para o consultor; {consultor} vira o nome de quem manda */
   chegou_em: string; avisado_em: string | null; atendido_em: string | null;
   consultor: string | null; consultor_id: string | null; fixado_por: "lead" | "gerente" | null; minutos_esperando: number | null; minutos_para_repasse: number | null;
   situacao: "sua_vez" | "sem_resposta" | "atendido" | "passou_adiante" | "com_robo" | "fila_noite";
@@ -29,6 +30,7 @@ function lead(c: Linha, vendedores: Map<string, string>, prazo: number, agora: n
     id: c.id, nome: c.lead_nome || "Cliente sem nome", telefone: foneLegivel(c.lead_wa), whatsapp_link: `https://wa.me/${c.lead_wa}`,
     carro: r.veiculo ?? c.origem_detalhe?.veiculo_texto ?? "não identificado", origem: c.origem,
     troca: r.troca ?? "", pagamento: r.pagamento ?? "", visita: r.visita ?? "", pendencias: r.pendencias ?? "", resumo: r.resumo ?? "",
+    mensagem: typeof r.primeira_mensagem === "string" && r.primeira_mensagem.trim() ? r.primeira_mensagem.trim() : null,
     chegou_em: c.iniciada_em, avisado_em: c.avisado_em ?? null, atendido_em: c.primeira_acao_humana_em ?? null,
     consultor: c.vendedor_id ? vendedores.get(c.vendedor_id) ?? null : null, consultor_id: c.vendedor_id ?? null,
     fixado_por: c.fixado_por ?? null,

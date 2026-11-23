@@ -7,7 +7,7 @@ export const GRAPH = `https://graph.facebook.com/${Deno.env.get("WHATSAPP_GRAPH_
 const banco = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const tokens = new Map<string, string>();
 
-async function tokenDo(phoneNumberId: string) {
+export async function tokenDo(phoneNumberId: string) {
   if (tokens.has(phoneNumberId)) return tokens.get(phoneNumberId)!;
   const { data } = await banco.from("pa_lojas").select("pa_credenciais(token_whatsapp)").eq("phone_number_id", phoneNumberId).maybeSingle();
   // deno-lint-ignore no-explicit-any
@@ -53,8 +53,9 @@ async function post(phoneNumberId: string, body: Record<string, unknown>) {
   return j?.messages?.[0]?.id as string | undefined;
 }
 
+/* com link (a página de fotos do carro), o WhatsApp mostra a prévia com a imagem */
 export const enviarTexto = (phoneNumberId: string, para: string, texto: string) =>
-  post(phoneNumberId, { recipient_type: "individual", to: para, type: "text", text: { preview_url: false, body: texto } });
+  post(phoneNumberId, { recipient_type: "individual", to: para, type: "text", text: { preview_url: /https:\/\//.test(texto), body: texto } });
 
 /* marca como lida e mostra "digitando…" ao lead enquanto o robô escreve (some na resposta ou em ~25 s) */
 export const marcarLida = (phoneNumberId: string, waId: string) =>

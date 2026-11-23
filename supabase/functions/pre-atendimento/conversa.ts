@@ -17,7 +17,7 @@ export const ENCAMINHAR: Anthropic.Tool = {
   input_schema: {
     type: "object",
     additionalProperties: false,
-    required: ["motivo", "consultor", "veiculo", "troca", "pagamento", "visita", "pendencias", "resumo"],
+    required: ["motivo", "consultor", "veiculo", "troca", "pagamento", "visita", "pendencias", "resumo", "primeira_mensagem"],
     properties: {
       motivo: { type: "string", enum: ["qualificado", "pediu_pessoa", "negociacao", "fora_do_escopo", "midia"] },
       consultor: { type: "string", description: "Primeiro nome da pessoa do time que o cliente chamou, pediu ou disse que o indicou, se for alguém da lista do time (apelido e nome completo contam). \"nenhum\" nos outros casos (o nome da loja não conta)." },
@@ -27,11 +27,12 @@ export const ENCAMINHAR: Anthropic.Tool = {
       visita: { type: "string", description: "O que disse sobre ir à loja (quer ir, quando, não pode). \"convidado, sem resposta\" só se você mandou o endereço nesta conversa; senão \"não convidado\"." },
       pendencias: { type: "string", description: "Perguntas que ficaram para o consultor responder, ou \"nenhuma\"." },
       resumo: { type: "string", description: "Uma frase para o consultor sobre o que a pessoa quer." },
+      primeira_mensagem: { type: "string", description: "Mensagem pronta para o consultor mandar à pessoa no WhatsApp, continuando de onde a conversa parou: cumprimente pelo primeiro nome (se souber e parecer nome de gente), apresente-se com 'Aqui é {consultor}, da' e o nome da loja (escreva {consultor} literalmente e sem artigo antes, nunca 'o {consultor}'; o painel troca pelo nome de quem manda), cite o carro e o que a pessoa já disse (troca, pagamento, quando vem) e proponha um próximo passo concreto (conhecer o carro na loja, trazer o carro da troca para avaliar, fazer a simulação). Duas ou três frases, tratando por você, sem travessão, sem emoji, sem repetir o que a Bia já respondeu e sem prometer preço, desconto, avaliação ou aprovação." },
     },
   },
 };
 
-export type Encaminhamento = { motivo: string; consultor?: string; veiculo: string; troca: string; pagamento: string; visita: string; pendencias: string; resumo: string };
+export type Encaminhamento = { motivo: string; consultor?: string; veiculo: string; troca: string; pagamento: string; visita: string; pendencias: string; resumo: string; primeira_mensagem?: string };
 export type Resultado = { ok: boolean; vendedor: string | null; nomeado?: boolean; fila?: boolean; abre?: string | null; erro?: string;
   atualizado?: boolean /* a conversa já estava com o consultor: só o resumo dele foi atualizado */;
   onde?: string /* por onde o consultor continua: "por aqui mesmo" ou "pelo WhatsApp da loja, (11) ..." */ };
@@ -255,6 +256,9 @@ export function semFrasesFeitas(texto: string, ofertaPedida = false) {
     .map((f) => !/an[uú]ncio[^.?!]*\b(geral|institucional|n[aã]o (fala|mostra|cita|traz))/i.test(f) ? f
       : !f.trim().endsWith("?") ? ""
       : f.replace(/(o|esse|este) an[uú]ncio[^,.?!:]*\b(geral|institucional|n[aã]o (fala|mostra|cita|traz))[^,.?!:]*[,:]?\s*(ent[aã]o\s*)?/i, "").trim())
+    /* "não tem fotos cadastradas aqui comigo, mas o consultor..." (23/11/2026): cadastro é bastidor, fica só o consultor */
+    .map((f) => f.replace(/^.*\bn[aã]o (tem|tenho|temos) (as )?(fotos?|imagens?)( dele| dela| desse| dessa)?( cadastrad[ao]s?)?( aqui( comigo)?)?[^,.!?]*,?\s*(mas\s+)?/i, "")
+      .replace(/\b(mandar|enviar) (as |mais )?imagens\b/i, "$1 as fotos"))
     .map((f) => f ? f[0].toUpperCase() + f.slice(1) : f)
     .filter((f) => !/^\W*$/.test(f) && !/antes de encaminhar|aguardar a resposta d|vou aguardar|instru[cç][aã]o|encaminhamento|^j[aá] (te )?aviso antes/i.test(f));
   const limpas = frases.filter((f) => !/posso (te )?ajudar (com|em) (mais|outr)|qualquer coisa,? (estou|t[ôo]) por aqui|em que (mais )?posso ajudar/i.test(f))
@@ -375,6 +379,14 @@ export function semONome(texto: string, nome?: string | null) {
 
 /* tudo o que passa pelo texto do robô antes de sair, igual no atendimento real e no simulador */
 export const polir = (texto: string, historico: Msg[], encaminhado: boolean, nome?: string | null) => {
+  /* link de fotos passa pelo polimento sem ser tocado (o hífen e o "?" do endereço não são pontuação da frase) */
+  const links: string[] = [];
+  texto = texto.replace(/https?:\/\/[^\s<>"]+/g, (u) => `⟦L${links.push(u.replace(/[.,;:!?)]+$/, "")) - 1}⟧`);
+  const pronto = polirSemLinks(texto, historico, encaminhado, nome);
+  return links.length ? pronto.replace(/\s*⟦L(\d+)⟧/g, (_, i) => `\n${links[Number(i)]}`).trim() : pronto;
+};
+
+const polirSemLinks = (texto: string, historico: Msg[], encaminhado: boolean, nome?: string | null) => {
   const ultimaDoLead = [...historico].reverse().find((m) => m.autor === "lead")?.texto ?? "";
   const perguntouSeERobo = PERGUNTOU_SE_E_ROBO.test(ultimaDoLead.replace(/\[[^\]]*\]/g, ""));
   /* já houve resposta da Bia: "Boa tarde, Vitor!" de novo no começo sai (lead real, 23/10/2026) */
@@ -385,6 +397,22 @@ export const polir = (texto: string, historico: Msg[], encaminhado: boolean, nom
   return semNomeRepetido(semCorNaoPedida(semMencaoDeRobo(semPerguntaRepetida(semPromessaAntesDaHora(
     semFrasesFeitas(semTravessao(texto), perguntouSeERobo), encaminhado), historico), historico), historico), historico, nome);
 };
+
+/* A Bia só manda link que está na ficha (a página de fotos de um carro do estoque de hoje). Link inventado ou de carro
+   que saiu sai do texto, e a frase que o apresentava vira "o consultor te manda". */
+export function soLinksDaFicha(texto: string, permitidos: string[]) {
+  let tirou = false;
+  const t = texto.replace(/https?:\/\/[^\s<>"]+/g, (u) => {
+    const limpo = u.replace(/[.,;:!?)]+$/, "");
+    if (permitidos.includes(limpo)) return u;
+    tirou = true;
+    return "";
+  });
+  if (!tirou) return texto;
+  const sem = t.split("\n").map((l) => l.trim()).filter(Boolean)
+    .map((l) => /:\s*$/.test(l) && /foto/i.test(l) ? "As fotos dele o consultor te manda." : l).join("\n").trim();
+  return sem || "As fotos dele o consultor te manda.";
+}
 
 /* despedida de reserva, quando o modelo encaminhou e não escreveu nada */
 export const despedidaPadrao = (r: Resultado) => {

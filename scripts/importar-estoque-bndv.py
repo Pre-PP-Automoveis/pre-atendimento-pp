@@ -3,7 +3,7 @@
 a planilha do Drive ficou para trás e a Bia chegou a oferecer carro já vendido (pedido do Pedro, via Kauan).
 
 Entrada: o CSV do leitor do BNDV (next-cerebro/clientes/pp-automoveis/bndv/estoque-fotos.mjs), com as colunas
-  id,marca,modelo,versao,ano,km,cor,cambio,combustivel,preco,situacao,em_circulacao,placa,fotos
+  id,marca,modelo,versao,ano,km,cor,cambio,combustivel,preco,situacao,em_circulacao,placa,fotos[,fotos_urls]
 
 Uso:
   python3 scripts/importar-estoque-bndv.py estoque.csv --conferir                       # só mostra, não grava
@@ -68,6 +68,8 @@ def ler(caminho, laudos):
                 "laudo_cautelar": laudos.get(placa) or None,  # guardado para o consultor, fora do prompt
                 "observacoes": "; ".join(o for o in obs if o) or None,
                 "anuncios": {"placa": placa, **({"bndv": c["id"].strip()} if c.get("id", "").strip() else {})},
+                # fotos do BNDV (CDN público): a Bia manda o link da página de fotos do carro
+                "fotos": [u for u in (c.get("fotos_urls") or "").split() if u.startswith("https://")][:30],
                 "_situacao": c.get("situacao", ""), "_preco_bndv": preco,
             })
     return carros
@@ -83,7 +85,7 @@ def main():
     loja = None
     if chave:
         loja = api("GET", f"pa_lojas?select=id&slug=eq.{LOJA}", chave)[0]["id"]
-        anteriores = api("GET", f"pa_veiculos?select=laudo_cautelar,anuncios&loja_id=eq.{loja}", chave)
+        anteriores = api("GET", f"pa_veiculos?select=id,laudo_cautelar,anuncios&loja_id=eq.{loja}", chave)
         guardados = {(v["anuncios"] or {}).get("placa", "").replace("-", ""): v["laudo_cautelar"] for v in anteriores if v["laudo_cautelar"]}
         for placa, laudo in guardados.items():
             laudos.setdefault(placa, laudo)
@@ -108,8 +110,11 @@ def main():
         print(f"RECUSADO: o BNDV trouxe {len(carros)} veículos e a Bia tem {atual}. O estoque da Bia ficou como estava.", file=sys.stderr)
         sys.exit(3)
     linhas = [{k: v for k, v in c.items() if not k.startswith("_")} | {"loja_id": loja} for c in carros]
-    api("DELETE", f"pa_veiculos?loja_id=eq.{loja}", chave)
+    # grava o novo antes de apagar o antigo: se a gravação falhar, a Bia continua com o estoque de ontem
     gravados = api("POST", "pa_veiculos", chave, linhas)
+    velhos = [v["id"] for v in anteriores]
+    for i in range(0, len(velhos), 50):
+        api("DELETE", f"pa_veiculos?id=in.({','.join(velhos[i:i + 50])})", chave)
     print(f"Estoque da Bia trocado pelo do BNDV: {len(gravados)} veículos.")
     if sem_preco:
         print("Sem preço confirmado (a Bia diz que o consultor confirma):", "; ".join(sem_preco))

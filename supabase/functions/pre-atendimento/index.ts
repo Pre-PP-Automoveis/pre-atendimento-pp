@@ -7,13 +7,15 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { lerOrigem, type Referral } from "./origem.ts";
-import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
+import { agoraSP, contextoTurno, linkFotos, notaDeCor, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 import { foneLegivel, passouDoRobo, pessoaPedida, proximoVendedor, venceuPrazo } from "./rodizio.ts";
 import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
 import { ligarLoja } from "./ligacao.ts";
-import { abertura, aberturaCurta, notaDepoisDaPassagem, resumirParaConsultor, semONome, soConfirmacao, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { abertura, aberturaCurta, notaDepoisDaPassagem, resumirParaConsultor, semONome, soConfirmacao, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, soLinksDaFicha, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 import { chavePublica, enviarAvisos } from "./push.ts";
+import { descreverFoto, servicoDeAudio, textoDaMidia } from "./midia.ts";
+import { rotuloFoto } from "./rotulos.ts";
 import { equipeDoPainel, painelAdmin, painelConsultor, painelGerente } from "./painel.ts";
 import { BLOQUEIO_MIN, confereSenha, hashSenha, MAX_FALHAS, normalizaUsuario, novoToken, resumoDoToken, SESSAO_DIAS, senhaPadrao } from "./acesso.ts";
 
@@ -100,6 +102,7 @@ Deno.serve(async (req) => {
       rota === "entrar" ? entrarNoPainel(corpo)
       : rota === "sair" ? sairDoPainel(sessao, corpo)
       : rota === "push_chave" ? chavePublica().then((chave) => ({ status: 200, corpo: { chave } }))
+      : rota === "carro" ? paginaDoCarro(url.searchParams.get("c") ?? "")
       : rota === "push" ? guardarPush(sessao, corpo)
       : rota === "senha" ? trocarSenha(sessao, corpo)
       : rota === "conversa" ? lerConversa(sessao, url.searchParams.get("id") ?? "")
@@ -139,6 +142,7 @@ Deno.serve(async (req) => {
       anthropic: claude,
       segredos: { ANTHROPIC_API_KEY: tem("ANTHROPIC_API_KEY"), META_APP_ID: tem("META_APP_ID"), WHATSAPP_APP_SECRET: tem("WHATSAPP_APP_SECRET"), WHATSAPP_VERIFY_TOKEN: tem("WHATSAPP_VERIFY_TOKEN"),
         PP_META_APP_ID: tem("PP_META_APP_ID"), PP_WHATSAPP_APP_SECRET: tem("PP_WHATSAPP_APP_SECRET") },
+      audio: servicoDeAudio() ?? "sem chave de transcrição: áudio continua com o aviso para escrever",
     }), { headers: { "Content-Type": "application/json" } });
   }
 
@@ -200,6 +204,17 @@ Deno.serve(async (req) => {
     loja.equipe = await nomesDaEquipe(loja.id);
     /* sem estoque no pedido, usa o estoque real da loja */
     const { data: frota } = pedido.estoque ? { data: null } : await admin.from("pa_veiculos").select("*").eq("loja_id", loja.id).order("titulo");
+    /* foto no simulador: a mensagem "[foto:https://...]" passa pela mesma descrição da foto real (midia.ts) */
+    for (const c of (pedido.cenarios ?? []) as { mensagens: string[] }[]) {
+      c.mensagens = await Promise.all((c.mensagens ?? []).map(async (m) => {
+        const u = m.match(/^\[foto:(https:\/\/\S+)\]$/)?.[1];
+        if (!u) return m;
+        const r = await fetch(u);
+        const bytes = new Uint8Array(await r.arrayBuffer());
+        const d = await descreverFoto(anthropic(), loja.modelo, bytes, (r.headers.get("content-type") ?? "image/jpeg").split(";")[0]);
+        return rotuloFoto(d.texto);
+      }));
+    }
     const resultado = await simular(anthropic(), loja, { ...pedido, estoque: pedido.estoque ?? frota ?? [] });
     return new Response(JSON.stringify(resultado), { headers: { "Content-Type": "application/json" } });
   }
@@ -317,10 +332,21 @@ async function tratarMensagem(loja: Linha, msg: Linha, nomePerfil: string | null
     if (doTime && Date.now() - new Date(doTime.ultima_em).getTime() < REABRE_COM_HUMANO_MS) return;
   }
 
-  const texto = textoDe(msg);
+  /* áudio vira texto e foto vira descrição (midia.ts); se não der, fica o aviso de sempre e a Bia pede para escrever */
+  let texto = textoDe(msg);
+  let custoMidia = 0;
+  if (msg.type === "image" || msg.type === "audio") {
+    const { data: ja } = await admin.from("pa_mensagens").select("id").eq("wa_id", msg.id).limit(1);
+    if (ja?.length) return; // reentrega da Meta: já tratada, não baixa nem cobra de novo
+    try {
+      const m = await textoDaMidia({ cliente: anthropic(), modelo: loja.modelo, phoneNumberId: loja.phone_number_id, msg });
+      if (m) { texto = m.texto; custoMidia = m.custo; }
+    } catch (e) { await registrarErro("midia", e, loja.id); }
+  }
   const conversa = await abrirConversa(loja, msg, texto, nomePerfil);
 
-  const { error: dup } = await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "lead", tipo: msg.type, texto, wa_id: msg.id });
+  const { error: dup } = await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "lead", tipo: msg.type, texto, wa_id: msg.id,
+    ...(custoMidia ? { custo_usd: Number(custoMidia.toFixed(6)) } : {}) });
   if (dup) { if (dup.code === "23505") return; throw dup; } // reentrega da Meta: já tratada
   await admin.from("pa_conversas").update({ ultima_msg_em: new Date().toISOString(), ...(nomePerfil ? { lead_nome: nomePerfil } : {}) }).eq("id", conversa.id);
 
@@ -472,6 +498,8 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
   if (!encaminhado && !depoisDaPassagem && agoraConversa?.estado !== "robo") return; // o cron dos 15 minutos encaminhou no meio
   /* aviso do item 8.5 abrindo a primeira mensagem, em texto fixo */
   let texto = polir(textos.join("\n\n"), historico ?? [], !!encaminhado, primeiroNome(conversa.lead_nome));
+  /* só sai link de fotos de carro que está na ficha de hoje */
+  texto = soLinksDaFicha(texto, (veiculos as Veiculo[]).map((v) => linkFotos(v, loja.link_fotos)).filter((l): l is string => !!l));
   if (!texto && encaminhado) texto = despedidaPadrao(encaminhado);
   if (!texto) return;
   if (!encaminhado && (await ultimaDoLeadId()) !== respondendo) return;
@@ -491,6 +519,26 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
   await enviarTexto(loja.phone_number_id, conversa.lead_wa, texto);
   await admin.from("pa_mensagens").insert({ conversa_id: conversaId, autor: "robo", texto, custo_usd: Number(custo.toFixed(6)) });
   if (primeiroTurno) await admin.from("pa_conversas").update({ respondido_robo_em: new Date().toISOString() }).eq("id", conversaId);
+}
+
+/* Página de fotos do carro (painel/carro.html), o link que a Bia manda. Pública, sem login: só o que o anúncio do carro
+   já mostra (título, preço, km, cor, câmbio e fotos) e o WhatsApp da loja. Nada de laudo, placa, cliente ou time.
+   O código é o do carro no BNDV; carro que saiu do estoque responde "vendido". */
+async function paginaDoCarro(codigo: string) {
+  if (!/^\d{1,12}$/.test(codigo)) return { status: 400, corpo: { erro: "carro inválido" } };
+  const { data: v } = await admin.from("pa_veiculos").select("titulo, preco, km, observacoes, fotos, disponivel, loja_id")
+    .eq("anuncios->>bndv", codigo).limit(1).maybeSingle();
+  const lojaId = v?.loja_id ?? (await admin.from("pa_lojas").select("id").eq("ativo", true).limit(1).maybeSingle()).data?.id;
+  const { data: loja } = lojaId ? await admin.from("pa_lojas").select("nome, endereco, numero_exibido").eq("id", lojaId).maybeSingle() : { data: null };
+  const whatsapp = (loja?.numero_exibido ?? "").replace(/\D/g, "");
+  const daLoja = { nome: loja?.nome ?? "", endereco: loja?.endereco ?? "", whatsapp: whatsapp ? `https://wa.me/${whatsapp}` : null };
+  if (!v || !v.disponivel) return { status: 200, corpo: { vendido: true, loja: daLoja } };
+  const obs = (v.observacoes ?? "") as string;
+  return { status: 200, corpo: {
+    titulo: v.titulo, preco: v.preco, km: v.km,
+    cor: obs.match(/\bcor ([^;|]+)/i)?.[1]?.trim() ?? null, cambio: obs.match(/\bcâmbio ([^;|]+)/i)?.[1]?.trim() ?? null,
+    fotos: (v.fotos ?? []).filter((u: string) => /^https:\/\/cdn-sistema-lojistas\.bndv\.com\.br\//.test(u)), loja: daLoja,
+  } };
 }
 
 /* primeiros nomes de quem está ativo no time, para o robô reconhecer quando o cliente pede alguém */

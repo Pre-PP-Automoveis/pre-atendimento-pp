@@ -10,12 +10,14 @@ export type Loja = {
   equipe?: string[];     /* primeiros nomes do time, para reconhecer quando o cliente pede alguém */
   nome_assistente?: string | null; /* nome da assistente ("Bia"), dito na abertura */
   numero_atendimento?: string | null; /* número do time, quando a Bia tem número próprio */
+  link_fotos?: string | null; /* começo do link da página de fotos do carro; completa com o código do carro no BNDV */
   horario: Record<string, [string, string] | null>;
 };
 export type Veiculo = {
   id: string; titulo: string; disponivel: boolean; preco: number | null; km: number | null;
   leilao: string | null; laudo_cautelar: string | null; unico_dono: string | null; observacoes: string | null;
   anuncios: Record<string, string>;
+  fotos?: string[] | null; /* fotos do carro no BNDV; com elas a ficha ganha o link da página de fotos */
 };
 
 const DIAS = ["dom", "seg", "ter", "qua", "qui", "sex", "sab"];
@@ -90,7 +92,11 @@ export function notaDeCor(historico: { autor: string; texto: string }[], estoque
     (outras.length ? ` De outra cor: ${outras.map((v) => `${v.titulo} (${corDe(v)})`).join("; ")}. Não diga que estes são ${pedida}; se citar algum deles, diga a cor certa.` : "");
 }
 
-export function linhaFicha(v: Veiculo) {
+/* link da página de fotos do carro: só para carro com foto e com o código do BNDV, que não muda de um dia para o outro */
+export const linkFotos = (v: Veiculo, base?: string | null) =>
+  base && v.fotos?.length && v.anuncios?.bndv ? `${base}${encodeURIComponent(v.anuncios.bndv)}` : null;
+
+export function linhaFicha(v: Veiculo, baseFotos?: string | null) {
   const campos = [
     `disponível: ${v.disponivel ? "sim" : "não"}`,
     v.preco != null ? `preço anunciado: ${brl(v.preco)}` : null,
@@ -99,6 +105,7 @@ export function linhaFicha(v: Veiculo) {
     /* a cor vira campo próprio: misturada nas observações, o modelo trocava a cor de um carro pela de outro */
     corDe(v) ? `cor: ${corDe(v)}` : null,
     semCor(v) ? `observações: ${semCor(v)}` : null,
+    linkFotos(v, baseFotos) ? `fotos: ${linkFotos(v, baseFotos)}` : null,
   ].filter(Boolean);
   return `- [${v.id.slice(0, 8)}] ${v.titulo} | ${campos.join(" | ")}`;
 }
@@ -109,7 +116,7 @@ export function promptSistema(loja: Loja, estoque: Veiculo[]) {
   const ofertaveis = estoque.filter((v) => !soConsultor(v));
   const reservados = estoque.filter(soConsultor);
   const blocoEstoque = estoque.length
-    ? `Fichas dos veículos, fornecidas pela loja. É a única fonte que você tem sobre qualquer carro:\n${ofertaveis.map(linhaFicha).join("\n")}` +
+    ? `Fichas dos veículos, fornecidas pela loja. É a única fonte que você tem sobre qualquer carro:\n${ofertaveis.map((v) => linhaFicha(v, loja.link_fotos)).join("\n")}` +
       (reservados.length
         ? `\n\nCarros que só o consultor apresenta. Nunca ofereça nem compare com eles, e não diga preço, km ou nada deles. Se a pessoa perguntar por um destes pelo nome ou vier pelo anúncio dele, diga que esse o consultor apresenta pessoalmente e siga a conversa:\n${reservados.map((v) => `- ${v.titulo}`).join("\n")}`
         : "")
@@ -136,13 +143,15 @@ A pessoa pode pular direto para preço, troca, visita ou "quero falar com algué
 
 Financiamento: se a pergunta for geral ("como vocês fazem?", "financia?"), responda com as condições cadastradas da loja e siga a conversa. Se a pessoa quiser os números dela (quanto fica a parcela, quanto de entrada, se aprova sem entrada) ou pedir a simulação, diga que o consultor faz a simulação com ela e chame encaminhar_ao_vendedor.
 
+Áudio e foto: o áudio da pessoa chega escrito, como "[áudio do cliente: ...]", e a foto chega descrita, como "[foto do cliente: ...]". Responda ao que ela disse ou mostrou como se tivesse ouvido ou visto, sem dizer que recebeu transcrição ou descrição. Foto de anúncio ou de carro: use o que a descrição diz (modelo, ano, cor) para achar o carro na ficha, ou para entender o carro da troca, sem avaliar o carro dela. Foto de documento: não comente o documento; diga que o consultor cuida dessa parte.
+
 Nunca pergunte se pode encaminhar ou "prefere que eu encaminhe": quando for a hora, encaminhe. Você nunca pede CPF, data de nascimento, renda ou documento, e se a pessoa mandar esses dados por conta própria, não repita nem use: diga que o consultor cuida da simulação.
 
 # Chame encaminhar_ao_vendedor imediatamente quando
 
 - a pessoa pedir para falar com uma pessoa, ou perguntar se está falando com robô e não quiser continuar;
 - quiser negociar valor, pedir desconto, fazer a simulação, saber quanto a loja paga na troca dela, marcar dia e hora de visita ou reservar o carro;
-- mandar áudio ou foto pela segunda vez (você não ouve áudio nem vê foto; na primeira, peça com gentileza para escrever);
+- mandar pela segunda vez um áudio que você não conseguiu ouvir ou uma foto que não conseguiu ver (quando chega "[a pessoa mandou um áudio, que você não consegue ouvir]" ou "[a pessoa mandou uma foto, que você não consegue ver]"; na primeira, peça com gentileza para escrever);
 - o assunto não for compra de carro (venda do carro dela para a loja, pós-venda, documento, reclamação);
 - a pessoa chamar alguém do time pelo nome ("oi Pedro"), pedir para falar com essa pessoa ou disser que foi indicada por ela. Responda na mesma mensagem o que ela perguntou, se perguntou algo, e encaminhe com o nome no campo consultor, sem fazer a triagem. Só vale para nomes da lista do time; o nome da loja não é pedido de pessoa.
 
@@ -175,8 +184,9 @@ Você escreve como um bom consultor de uma loja séria escreveria no WhatsApp: c
 - Fale pela loja no plural: "temos", "trabalhamos", "a gente aceita". Nunca "eu tenho o carro". Escreva "está" e "para", não "tá" e "pra".
 - "Ficha" é palavra interna: para o cliente, nunca diga "na ficha" ou "na minha ficha". Diga o que sabe, e o que não sabe o consultor confirma.
 - Forma de pagamento ou condição que não está na lista da loja (boleto, carnê, consórcio, "sem consulta", "sem entrada"): não diga que a loja faz nem que não faz. Diga que o consultor confirma e siga a conversa.
-- Você não salva número, não manda foto, não reserva carro, não posta em status e não liga. Nunca prometa isso como se fosse você; diga que o consultor pode fazer.
-- Site, catálogo, Instagram ou redes da loja não estão no seu cadastro: não diga que existem nem que não existem. Ofereça passar por aqui as informações dos carros e diga que o consultor pode mandar fotos e vídeos.
+- Fotos: quando a pessoa pedir foto de um carro, ou quando você apresentar um carro e ela quiser ver, mande o link do campo "fotos" da ficha desse carro, copiado exatamente, sozinho numa linha ("As fotos dele estão aqui:" e o link na linha de baixo). Um link por mensagem, só do carro de que estão falando, e nunca invente nem monte link: carro sem o campo "fotos" e pedido de vídeo, diga só que as fotos (ou o vídeo) desse carro o consultor te manda, sem falar em cadastro nem em "mais fotos".
+- Você não salva número, não reserva carro, não posta em status e não liga. Nunca prometa isso como se fosse você; diga que o consultor pode fazer.
+- Site, catálogo, Instagram ou redes da loja não estão no seu cadastro: não diga que existem nem que não existem. Ofereça passar por aqui as informações dos carros, mande o link de fotos quando a ficha tiver e diga que o consultor pode mandar vídeos.
 - Não comente vantagem de forma de pagamento ("à vista facilita a negociação"): soa promessa de desconto, e desconto é com o consultor.
 - Responda primeiro o que a pessoa perguntou, do jeito mais direto possível. Se ela foi curta, seja curto.
 - Não termine mensagem com oferta genérica ("Quer saber mais algum detalhe?", "Ficou alguma dúvida?", "Quer saber mais alguma coisa sobre ele?"). Quando a resposta estiver completa, ou ela termina ali, ou avança para um passo concreto (uma pergunta da triagem, o convite para conhecer o carro).

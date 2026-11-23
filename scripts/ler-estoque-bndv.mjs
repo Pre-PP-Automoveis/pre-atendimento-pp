@@ -26,7 +26,7 @@ if (/\/login/.test(pag.url()) || await pag.locator("input[type=password]:visible
 const r = await pag.evaluate(async (empresa) => {
   const token = (localStorage.getItem("access_token") || "").replace(/^"|"$/g, "");
   if (!token) return { sessao: true, itens: [], total: 0 };
-  const q = (p) => `query { vehicles_in_stock_web_app(pagination: { page: ${p}, pageSize: 50 } filters: { onlyConsigned: false, idCompany: ${empresa} } orderBy: VEHICLE) { paginationOut { totalRows } items { idVehicle plate yearFabrication yearModel color km price consigned inTraffic vehicleStatus { name } brand { name } model { name } version { name } transmission { name } fuel { name } images { idVehiclePhoto } } } }`;
+  const q = (p) => `query { vehicles_in_stock_web_app(pagination: { page: ${p}, pageSize: 50 } filters: { onlyConsigned: false, idCompany: ${empresa} } orderBy: VEHICLE) { paginationOut { totalRows } items { idVehicle plate yearFabrication yearModel color km price consigned inTraffic vehicleStatus { name } brand { name } model { name } version { name } transmission { name } fuel { name } images { idVehiclePhoto urlImage } } } }`;
   const itens = []; let total = 0;
   for (let p = 0; p < 12; p++) {
     const resp = await fetch("https://bndv-vehicle-api.azurewebsites.net/graphql", {
@@ -51,8 +51,10 @@ if (!r.itens.length || r.itens.length !== r.total) { console.error(`Leitura inco
 const esc = (c) => `"${String(c ?? "").replace(/"/g, "")}"`;
 const linha = (v) => [v.idVehicle, v.brand?.name, v.model?.name, v.version?.name, `${v.yearFabrication}/${v.yearModel}`, v.km, v.color,
   v.transmission?.name, v.fuel?.name, v.price, v.consigned ? "consignado" : (v.vehicleStatus?.name || ""), v.inTraffic ? "sim" : "nao", v.plate,
-  (v.images || []).length].map(esc).join(",");
-fs.writeFileSync(SAIDA, ["id,marca,modelo,versao,ano,km,cor,cambio,combustivel,preco,situacao,em_circulacao,placa,fotos", ...r.itens.map(linha)].join("\n") + "\n");
+  (v.images || []).length,
+  /* endereços públicos das fotos (CDN do BNDV), separados por espaço: viram a página de fotos que a Bia manda */
+  (v.images || []).map((i) => i.urlImage).filter((u) => /^https:\/\/[^\s",]+$/.test(u || "")).slice(0, 30).join(" ")].map(esc).join(",");
+fs.writeFileSync(SAIDA, ["id,marca,modelo,versao,ano,km,cor,cambio,combustivel,preco,situacao,em_circulacao,placa,fotos,fotos_urls", ...r.itens.map(linha)].join("\n") + "\n");
 console.log(`PP GARAGE 37 no BNDV: ${r.itens.length} veículos lidos em ${SAIDA}`);
 
 /* laudo cautelar: o BNDV não guarda. Vem da planilha da loja no Drive (coluna OBSERVAÇÕES), se este Chrome estiver

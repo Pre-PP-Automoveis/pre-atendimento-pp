@@ -33,6 +33,14 @@ relatar() {  # ok carros erro final avisar
 }
 avisar_mac() { osascript -e "display notification \"$1\" with title \"Estoque da Bia\" sound name \"Basso\"" >/dev/null 2>&1 || true; }
 
+# Chrome do agente aberto há muito tempo às vezes recusa conexão ("Browser context management is not supported"):
+# fecha só o Chrome do perfil do agente e abre de novo. A sessão do BNDV fica guardada no perfil.
+reabrir_chrome() {
+  pkill -f "user-data-dir=$HOME/.chrome-bndv" 2>/dev/null; sleep 3
+  pkill -9 -f "user-data-dir=$HOME/.chrome-bndv" 2>/dev/null; sleep 1
+  bash "$ABRIR" >/dev/null 2>&1; sleep 8
+}
+
 entrar_sozinho() {
   local cnpj email senha
   cnpj="$(security find-generic-password -s pre-atendimento-pp-bndv -a cnpj -w 2>/dev/null)" || return 1
@@ -47,6 +55,13 @@ for i in $(seq 1 "$TENTATIVAS"); do
   bash "$ABRIR" >/dev/null 2>&1; sleep 6
   saida="$("$RAIZ/scripts/atualizar-estoque-bndv.sh" 2>&1)"; cod=$?
   echo "$saida" | sed "s/^/   /" >> "$LOG"
+  # Chrome travado: reabre e lê de novo na hora, sem gastar tentativa
+  if [ $cod -ne 0 ] && echo "$saida" | grep -q "Chrome do agente fechado"; then
+    log "Chrome do agente não respondeu: reaberto"
+    reabrir_chrome
+    saida="$("$RAIZ/scripts/atualizar-estoque-bndv.sh" 2>&1)"; cod=$?
+    echo "$saida" | sed "s/^/   /" >> "$LOG"
+  fi
   # sessão caída: refaz o login pelo Chaves e lê de novo na hora, sem gastar tentativa
   if [ $cod -ne 0 ] && echo "$saida" | grep -q "sessão do BNDV caiu" && entrar_sozinho; then
     log "login refeito pelo Chaves"
