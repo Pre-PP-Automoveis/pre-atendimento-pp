@@ -380,7 +380,13 @@ function blocoAdmin(a) {
     '<div class="' + (s.loja_ativa ? "" : "ruim") + '"><small>Robô na loja</small><b>' + (s.loja_ativa ? "ligado" : "desligado") + "</b></div>" +
     '<div class="' + (cronRuim ? "ruim" : "") + '"><small>Rodízio automático</small><b>' + haQuanto(s.minutos_desde_cron) + "</b></div>" +
     "<div><small>Último aviso da Meta</small><b>" + haQuanto(s.minutos_desde_webhook) + "</b></div>" +
-    '<div class="' + (s.erros_24h ? "ruim" : "") + '"><small>Erros em 24 h</small><b>' + s.erros_24h + "</b></div></div>";
+    '<div class="' + (s.erros_24h ? "ruim" : "") + '"><small>Erros em 24 h</small><b>' + s.erros_24h + "</b></div>" +
+    /* a rotina das 9h troca o estoque todo dia: mais de 26 h sem troca, ou a última rotina com erro, fica vermelho */
+    (a.estoque ? (function (e) {
+      var idade = minutosDesde(e.atualizado_em), falhou = e.rotina && e.rotina.detalhe && e.rotina.detalhe.ok === false;
+      return '<div class="' + (idade == null || idade > 1560 || falhou ? "ruim" : "") + '"><small>Estoque da Bia (BNDV)</small><b>' + e.carros + " carros, " + haQuanto(idade) + "</b>" +
+        (falhou ? "<small>Rotina das 9h: " + esc(e.rotina.detalhe.erro || "falhou") + "</small>" : e.rotina ? "<small>Rotina das 9h ok " + haQuanto(minutosDesde(e.rotina.em)) + "</small>" : "") + "</div>";
+    })(a.estoque) : "") + "</div>";
   var linhas = [["Conversas", "conversas"], ["Passadas ao time", "encaminhadas"], ["Respondidas pelo time", "atendidas"], ["Sem resposta agora", "sem_resposta"],
     ["Repasses", "repasses"], ["Rodízio esgotado", "escalados"]];
   html += '<div class="placar"><table style="min-width:0"><thead><tr><th></th><th>Hoje</th><th>7 dias</th></tr></thead><tbody>' +

@@ -130,6 +130,7 @@ Pergunta sobre detalhe que não está na ficha (opcionais, multimídia, consumo,
 
 Carro do anúncio sem ficha (o contexto avisa): diga que esse carro o consultor confirma e siga a conversa normalmente. Se fizer sentido, ofereça um ou dois parecidos que estão na ficha. Não encaminhe só por isso.
 Carro que não está na ficha: diga que não está no estoque de hoje e ofereça até três parecidos, com preço, numa frase.
+A ficha é o estoque de hoje e é a única verdade sobre o que a loja tem. Carro citado antes nesta conversa, por você ou pela pessoa, que não aparece mais na ficha saiu do estoque: diga que ele não está mais disponível, ofereça os parecidos da ficha e nunca volte a oferecê-lo, nem com o preço que já foi dito.
 
 A pessoa pode pular direto para preço, troca, visita ou "quero falar com alguém". Siga ela: a ordem acima é guia, não formulário.
 
@@ -209,7 +210,7 @@ export function contextoTurno(p: {
     : p.ficha
     ? `carro do anúncio, com ficha: ${p.ficha.titulo} [${p.ficha.id.slice(0, 8)}]`
     : p.veiculoAnuncio && p.canal === "Tráfego Pago"
-      ? `veio por anúncio pago da loja, com este texto: "${p.veiculoAnuncio}". Descubra pelo texto de que carro(s) o anúncio fala e procure na ficha (mesmo modelo, ano e cor): achando, fale desses carros com os dados da ficha, sem pedir para a pessoa repetir. Se o texto não fala de um carro, não comente o anúncio ("esse anúncio é geral"): só pergunte, com naturalidade, qual carro ela procura. Nunca repita promessas do anúncio (garantia, perícia, "melhor avaliação", "preço justo"): valem as regras da loja. Não diga que o carro do anúncio é o consultor quem apresenta`
+      ? `veio por anúncio pago da loja, com este texto: "${p.veiculoAnuncio}". Descubra pelo texto de que carro(s) o anúncio fala e procure na ficha (mesmo modelo, ano e cor): achando, fale desses carros com os dados da ficha, sem pedir para a pessoa repetir. Carro do anúncio que não está na ficha já saiu do estoque: diga isso com naturalidade ("esse já foi vendido") e ofereça o que a ficha tem de parecido, nunca fale dele como disponível. Se o texto não fala de um carro, não comente o anúncio ("esse anúncio é geral"): só pergunte, com naturalidade, qual carro ela procura. Nunca repita promessas do anúncio (garantia, perícia, "melhor avaliação", "preço justo"): valem as regras da loja. Não diga que o carro do anúncio é o consultor quem apresenta`
     : p.veiculoAnuncio
       ? `carro do anúncio, pelo link: ${p.veiculoAnuncio} (sem ficha cadastrada: não confirme disponibilidade nem nenhum dado dele)`
       : "carro não identificado";

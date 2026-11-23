@@ -162,6 +162,31 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify(feitos), { headers: { "Content-Type": "application/json" } });
   }
 
+  /* rotina das 9h do estoque (scripts/rotina-estoque-bndv.sh, no Mac do Kauan): grava o resultado na saúde e, se falhou,
+     avisa no celular quem é administrador da Moza. Chave de serviço. */
+  if (url.searchParams.get("rotina_estoque") !== null) {
+    const chave = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const { error: negado } = chave
+      ? await createClient(Deno.env.get("SUPABASE_URL")!, chave, { auth: { persistSession: false } }).rpc("pa_confere_cron", { segredo: "-" })
+      : { error: true };
+    if (negado) return new Response("forbidden", { status: 403 });
+    const r = await req.json().catch(() => ({}));
+    const detalhe = { ok: !!r.ok, carros: typeof r.carros === "number" ? r.carros : null, erro: r.ok ? null : String(r.erro ?? "falhou").slice(0, 300), final: !!r.final };
+    await admin.from("pa_saude").upsert({ chave: "estoque", em: new Date().toISOString(), detalhe });
+    let avisados = 0;
+    if (!detalhe.ok && r.avisar) {
+      const { data: admins } = await admin.from("pa_vendedores").select("id").eq("admin", true).eq("ativo", true);
+      const ids = (admins ?? []).map((v: Linha) => v.id);
+      const { data: inscricoes } = ids.length ? await admin.from("pa_push").select("endpoint, inscricao").in("vendedor_id", ids) : { data: [] };
+      if (inscricoes?.length) {
+        const { enviados, mortos } = await enviarAvisos(inscricoes, { titulo: "Estoque da Bia não atualizou", corpo: detalhe.erro ?? "A rotina das 9h falhou.", url: "/", tag: "estoque" });
+        avisados = enviados;
+        if (mortos.length) await admin.from("pa_push").delete().in("endpoint", mortos);
+      }
+    }
+    return new Response(JSON.stringify({ ok: true, avisados }), { headers: { "Content-Type": "application/json" } });
+  }
+
   /* simulador: roda cenários com o prompt e o código reais, sem WhatsApp e sem gravar nada. Chave de serviço. */
   if (url.searchParams.get("simular") !== null) {
     const chave = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
@@ -772,8 +797,17 @@ async function lerPainel(sessao: string): Promise<Resposta> {
     ...cabecalho, quem: "gerente", voce: meus,
     ...painelGerente(conversas ?? [], nomes, prazo, Date.now(), inicioDoDia),
     equipe: equipeDoPainel((equipe ?? []).filter((v: Linha) => !v.admin), conversas ?? [], await avisosPorPessoa((equipe ?? []).map((v: Linha) => v.id))),
-    ...(pessoa.admin ? { admin: await dadosDoAdmin(loja, nomes, inicioDoDia) } : {}),
+    ...(pessoa.admin ? { admin: { ...await dadosDoAdmin(loja, nomes, inicioDoDia), estoque: await estoqueDaLoja(loja.id) } } : {}),
   } };
+}
+
+/* quando o estoque da Bia foi atualizado pela última vez e quantos carros tem: estoque velho faz a Bia oferecer carro vendido */
+async function estoqueDaLoja(lojaId: string) {
+  const [{ data }, { data: rotina }] = await Promise.all([
+    admin.from("pa_veiculos").select("atualizado_em").eq("loja_id", lojaId).eq("disponivel", true).order("atualizado_em", { ascending: false }),
+    admin.from("pa_saude").select("em, detalhe").eq("chave", "estoque").maybeSingle(),
+  ]);
+  return { carros: data?.length ?? 0, atualizado_em: data?.[0]?.atualizado_em ?? null, rotina: rotina ?? null };
 }
 
 /* administrador da Moza: saúde, erros, números e conversas da semana */
