@@ -53,9 +53,24 @@ async function post(phoneNumberId: string, body: Record<string, unknown>) {
   return j?.messages?.[0]?.id as string | undefined;
 }
 
-/* com link (a página de fotos do carro), o WhatsApp mostra a prévia com a imagem */
 export const enviarTexto = (phoneNumberId: string, para: string, texto: string) =>
-  post(phoneNumberId, { recipient_type: "individual", to: para, type: "text", text: { preview_url: /https:\/\//.test(texto), body: texto } });
+  post(phoneNumberId, { recipient_type: "individual", to: para, type: "text", text: { preview_url: false, body: texto } });
+
+/* Foto do carro (24/11/2026): sobe o JPEG para o WhatsApp e manda pelo id da mídia. Nenhum endereço sai daqui, e a
+   imagem já está na Meta quando a mensagem sai, o que segura a ordem das fotos antes do texto. */
+export async function subirFoto(phoneNumberId: string, jpeg: Blob) {
+  const f = new FormData();
+  f.append("messaging_product", "whatsapp");
+  f.append("type", "image/jpeg");
+  f.append("file", new Blob([jpeg], { type: "image/jpeg" }), "foto.jpg");
+  const r = await fetch(`${GRAPH}/${phoneNumberId}/media`, { method: "POST", headers: { Authorization: `Bearer ${await tokenDo(phoneNumberId)}` }, body: f });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j?.id) throw new Error(`upload da foto ${r.status}: ${JSON.stringify(j?.error?.message ?? j)}`);
+  return j.id as string;
+}
+
+export const enviarImagem = (phoneNumberId: string, para: string, mediaId: string) =>
+  post(phoneNumberId, { recipient_type: "individual", to: para, type: "image", image: { id: mediaId } });
 
 /* marca como lida e mostra "digitando…" ao lead enquanto o robô escreve (some na resposta ou em ~25 s) */
 export const marcarLida = (phoneNumberId: string, waId: string) =>

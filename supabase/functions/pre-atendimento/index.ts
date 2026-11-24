@@ -7,11 +7,12 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { lerOrigem, type Referral } from "./origem.ts";
-import { agoraSP, contextoTurno, linkFotos, notaDeCor, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
+import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 import { foneLegivel, passouDoRobo, pessoaPedida, proximoVendedor, venceuPrazo } from "./rodizio.ts";
-import { assinaturaValida, enviarAvisoVendedor, enviarTexto, marcarLida } from "./whatsapp.ts";
+import { assinaturaValida, enviarAvisoVendedor, enviarImagem, enviarTexto, marcarLida, subirFoto } from "./whatsapp.ts";
+import { type AnexoFotos, BALDE_FOTOS, fotosJaEnviadas, type Lote, pedirFotos, rotuloFotos } from "./fotos.ts";
 import { ligarLoja } from "./ligacao.ts";
-import { abertura, aberturaCurta, notaDepoisDaPassagem, resumirParaConsultor, semONome, soConfirmacao, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, soLinksDaFicha, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
+import { abertura, aberturaCurta, notaDepoisDaPassagem, resumirParaConsultor, semONome, soConfirmacao, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, semLinks, visitaReal, type Encaminhamento, montarMensagens, type Resultado, rodarTurno } from "./conversa.ts";
 import { simular } from "./simulador.ts";
 import { chavePublica, enviarAvisos } from "./push.ts";
 import { descreverFoto, servicoDeAudio, textoDaMidia, transcreverAudio } from "./midia.ts";
@@ -102,7 +103,6 @@ Deno.serve(async (req) => {
       rota === "entrar" ? entrarNoPainel(corpo)
       : rota === "sair" ? sairDoPainel(sessao, corpo)
       : rota === "push_chave" ? chavePublica().then((chave) => ({ status: 200, corpo: { chave } }))
-      : rota === "carro" ? paginaDoCarro(url.searchParams.get("c") ?? "")
       : rota === "push" ? guardarPush(sessao, corpo)
       : rota === "senha" ? trocarSenha(sessao, corpo)
       : rota === "conversa" ? lerConversa(sessao, url.searchParams.get("id") ?? "")
@@ -435,10 +435,11 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
   const { data: conversa } = await admin.from("pa_conversas").select("*").eq("id", conversaId).single();
   if (!conversa || conversa.primeira_acao_humana_em) return;
   if (depoisDaPassagem ? !["encaminhada", "fila"].includes(conversa.estado) : conversa.estado !== "robo") return;
-  const [{ data: estoque }, { data: historico }, equipe] = await Promise.all([
+  const [{ data: estoque }, { data: historico }, equipe, { data: anexos }] = await Promise.all([
     admin.from("pa_veiculos").select("*").eq("loja_id", loja.id).order("titulo"),
     admin.from("pa_mensagens").select("autor, texto").eq("conversa_id", conversaId).in("autor", ["lead", "robo"]).order("id"),
     nomesDaEquipe(loja.id),
+    admin.from("pa_mensagens").select("anexo").eq("conversa_id", conversaId).not("anexo", "is", null),
   ]);
   const veiculos = (estoque ?? []) as Veiculo[];
   const ficha = veiculos.find((v) => v.id === conversa.veiculo_id) ?? null;
@@ -462,10 +463,18 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
   let custo = 0;
   let encaminhado: Resultado | null = null;
   let motivo: string | null = null;
+  /* fotos que a Bia pediu neste turno: saem antes do texto dela, depois das mesmas checagens do texto */
+  const lotes: Lote[] = [];
+  const jaEnviadas = fotosJaEnviadas((anexos ?? []).map((a: Linha) => a.anexo as AnexoFotos));
   try {
     const turno = await rodarTurno({
       cliente: anthropic(), modelo: loja.modelo, sistema: promptSistema({ ...loja, equipe } as Loja, veiculos), messages,
       validar: depoisDaPassagem ? undefined : exigirConvite(historico ?? [], loja.endereco),
+      aoPedirFotos: (carro) => {
+        const r = pedirFotos(veiculos, carro, jaEnviadas);
+        if (r.lote) lotes.push(r.lote);
+        return r.paraModelo;
+      },
       aoEncaminhar: async (e) => {
         if (depoisDaPassagem) {
           /* já está com o consultor: o encaminhamento só atualiza o resumo que ele vê no painel, sem mexer no rodízio */
@@ -504,8 +513,8 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
   if (!encaminhado && !depoisDaPassagem && agoraConversa?.estado !== "robo") return; // o cron dos 15 minutos encaminhou no meio
   /* aviso do item 8.5 abrindo a primeira mensagem, em texto fixo */
   let texto = polir(textos.join("\n\n"), historico ?? [], !!encaminhado, primeiroNome(conversa.lead_nome));
-  /* só sai link de fotos de carro que está na ficha de hoje */
-  texto = soLinksDaFicha(texto, (veiculos as Veiculo[]).map((v) => linkFotos(v, loja.link_fotos)).filter((l): l is string => !!l));
+  /* nenhum link sai para o cliente: as fotos vão como imagem */
+  texto = semLinks(texto);
   if (!texto && encaminhado) texto = despedidaPadrao(encaminhado);
   if (!texto) return;
   if (!encaminhado && (await ultimaDoLeadId()) !== respondendo) return;
@@ -522,29 +531,41 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
   }
 
   if (!encaminhado && (await ultimaDoLeadId()) !== respondendo) return;
+  if (lotes.length && !(await enviarFotos(loja, conversa, lotes))) texto = `${texto}\n\nAs fotos dele o consultor te manda.`;
   await enviarTexto(loja.phone_number_id, conversa.lead_wa, texto);
   await admin.from("pa_mensagens").insert({ conversa_id: conversaId, autor: "robo", texto, custo_usd: Number(custo.toFixed(6)) });
   if (primeiroTurno) await admin.from("pa_conversas").update({ respondido_robo_em: new Date().toISOString() }).eq("id", conversaId);
 }
 
-/* Página de fotos do carro (painel/carro.html), o link que a Bia manda. Pública, sem login: só o que o anúncio do carro
-   já mostra (título, preço, km, cor, câmbio e fotos) e o WhatsApp da loja. Nada de laudo, placa, cliente ou time.
-   O código é o do carro no BNDV; carro que saiu do estoque responde "vendido". */
-async function paginaDoCarro(codigo: string) {
-  if (!/^\d{1,12}$/.test(codigo)) return { status: 400, corpo: { erro: "carro inválido" } };
-  const { data: v } = await admin.from("pa_veiculos").select("titulo, preco, km, observacoes, fotos, disponivel, loja_id")
-    .eq("anuncios->>bndv", codigo).limit(1).maybeSingle();
-  const lojaId = v?.loja_id ?? (await admin.from("pa_lojas").select("id").eq("ativo", true).limit(1).maybeSingle()).data?.id;
-  const { data: loja } = lojaId ? await admin.from("pa_lojas").select("nome, endereco, numero_exibido").eq("id", lojaId).maybeSingle() : { data: null };
-  const whatsapp = (loja?.numero_exibido ?? "").replace(/\D/g, "");
-  const daLoja = { nome: loja?.nome ?? "", endereco: loja?.endereco ?? "", whatsapp: whatsapp ? `https://wa.me/${whatsapp}` : null };
-  if (!v || !v.disponivel) return { status: 200, corpo: { vendido: true, loja: daLoja } };
-  const obs = (v.observacoes ?? "") as string;
-  return { status: 200, corpo: {
-    titulo: v.titulo, preco: v.preco, km: v.km,
-    cor: obs.match(/\bcor ([^;|]+)/i)?.[1]?.trim() ?? null, cambio: obs.match(/\bcâmbio ([^;|]+)/i)?.[1]?.trim() ?? null,
-    fotos: (v.fotos ?? []).filter((u: string) => /^https:\/\/cdn-sistema-lojistas\.bndv\.com\.br\//.test(u)), loja: daLoja,
-  } };
+/* Manda as fotos separadas pela Bia, como imagens, antes do texto dela. Sobe todas para o WhatsApp primeiro (em paralelo)
+   e só então manda uma a uma, na ordem do BNDV. Grava na conversa quantas foram, para o painel e para o "manda mais".
+   Devolve false se nenhuma foto saiu (o texto ganha "o consultor te manda"). */
+async function enviarFotos(loja: Linha, conversa: Linha, lotes: Lote[]) {
+  let alguma = false;
+  for (const l of lotes) {
+    const ids = await Promise.all(l.caminhos.map(async (c) => {
+      try {
+        const { data, error } = await admin.storage.from(BALDE_FOTOS).download(c);
+        if (error || !data) throw error ?? new Error("foto vazia");
+        return await subirFoto(loja.phone_number_id, data);
+      } catch (e) {
+        await registrarErro("fotos", e, loja.id, conversa.id);
+        return null;
+      }
+    }));
+    let foram = 0;
+    for (const id of ids) {
+      if (!id) continue;
+      try { await enviarImagem(loja.phone_number_id, conversa.lead_wa, id); foram++; } catch (e) { await registrarErro("fotos", e, loja.id, conversa.id); }
+    }
+    if (!foram) continue;
+    alguma = true;
+    const anexo: AnexoFotos = { codigo: l.codigo, de: l.de, ate: l.de + foram, total: l.total };
+    await admin.from("pa_mensagens").insert({ conversa_id: conversa.id, autor: "robo", tipo: "image", texto: rotuloFotos(l.titulo, foram, l.de + foram, l.total), anexo });
+  }
+  /* a última imagem chega à Meta antes do texto sair */
+  if (alguma) await new Promise((r) => setTimeout(r, 1500));
+  return alguma;
 }
 
 /* primeiros nomes de quem está ativo no time, para o robô reconhecer quando o cliente pede alguém */

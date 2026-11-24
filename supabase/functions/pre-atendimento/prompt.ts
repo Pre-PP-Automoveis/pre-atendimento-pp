@@ -10,14 +10,13 @@ export type Loja = {
   equipe?: string[];     /* primeiros nomes do time, para reconhecer quando o cliente pede alguém */
   nome_assistente?: string | null; /* nome da assistente ("Bia"), dito na abertura */
   numero_atendimento?: string | null; /* número do time, quando a Bia tem número próprio */
-  link_fotos?: string | null; /* começo do link da página de fotos do carro; completa com o código do carro no BNDV */
   horario: Record<string, [string, string] | null>;
 };
 export type Veiculo = {
   id: string; titulo: string; disponivel: boolean; preco: number | null; km: number | null;
   leilao: string | null; laudo_cautelar: string | null; unico_dono: string | null; observacoes: string | null;
   anuncios: Record<string, string>;
-  fotos?: string[] | null; /* fotos do carro no BNDV; com elas a ficha ganha o link da página de fotos */
+  fotos?: string[] | null; /* fotos do carro em JPEG no armazenamento privado (fotos.ts); a Bia manda como imagem */
 };
 
 const DIAS = ["dom", "seg", "ter", "qua", "qui", "sex", "sab"];
@@ -96,11 +95,10 @@ export function notaDeCor(historico: { autor: string; texto: string }[], estoque
     (outras.length ? ` De outra cor: ${outras.map((v) => `${v.titulo} (${corDe(v)})`).join("; ")}. Não diga que estes são ${pedida}; se citar algum deles, diga a cor certa.` : "");
 }
 
-/* link da página de fotos do carro: só para carro com foto e com o código do BNDV, que não muda de um dia para o outro */
-export const linkFotos = (v: Veiculo, base?: string | null) =>
-  base && v.fotos?.length && v.anuncios?.bndv ? `${base}${encodeURIComponent(v.anuncios.bndv)}` : null;
+/* quantas fotos o carro tem para mandar (só caminho do armazenamento conta; mesma regra de fotos.ts) */
+const qtdFotos = (v: Veiculo) => (v.fotos ?? []).filter((f) => /^\d+\/[\w.-]+\.jpg$/.test(f)).length;
 
-export function linhaFicha(v: Veiculo, baseFotos?: string | null) {
+export function linhaFicha(v: Veiculo) {
   const campos = [
     `disponível: ${v.disponivel ? "sim" : "não"}`,
     v.preco != null ? `preço anunciado: ${brl(v.preco)}` : null,
@@ -109,7 +107,7 @@ export function linhaFicha(v: Veiculo, baseFotos?: string | null) {
     /* a cor vira campo próprio: misturada nas observações, o modelo trocava a cor de um carro pela de outro */
     corDe(v) ? `cor: ${corDe(v)}` : null,
     semCor(v) ? `observações: ${semCor(v)}` : null,
-    linkFotos(v, baseFotos) ? `fotos: ${linkFotos(v, baseFotos)}` : null,
+    qtdFotos(v) && v.anuncios?.bndv ? `fotos: ${qtdFotos(v)}` : null,
   ].filter(Boolean);
   return `- [${v.id.slice(0, 8)}] ${v.titulo} | ${campos.join(" | ")}`;
 }
@@ -120,7 +118,7 @@ export function promptSistema(loja: Loja, estoque: Veiculo[]) {
   const ofertaveis = estoque.filter((v) => !soConsultor(v));
   const reservados = estoque.filter(soConsultor);
   const blocoEstoque = estoque.length
-    ? `Fichas dos veículos, fornecidas pela loja. É a única fonte que você tem sobre qualquer carro:\n${ofertaveis.map((v) => linhaFicha(v, loja.link_fotos)).join("\n")}` +
+    ? `Fichas dos veículos, fornecidas pela loja. É a única fonte que você tem sobre qualquer carro:\n${ofertaveis.map((v) => linhaFicha(v)).join("\n")}` +
       (reservados.length
         ? `\n\nCarros que só o consultor apresenta. Nunca ofereça nem compare com eles, e não diga preço, km ou nada deles. Se a pessoa perguntar por um destes pelo nome ou vier pelo anúncio dele, diga que esse o consultor apresenta pessoalmente e siga a conversa:\n${reservados.map((v) => `- ${v.titulo}`).join("\n")}`
         : "")
@@ -188,9 +186,9 @@ Você escreve como um bom consultor de uma loja séria escreveria no WhatsApp: c
 - Fale pela loja no plural: "temos", "trabalhamos", "a gente aceita". Nunca "eu tenho o carro". Escreva "está" e "para", não "tá" e "pra".
 - "Ficha" é palavra interna: para o cliente, nunca diga "na ficha" ou "na minha ficha". Diga o que sabe, e o que não sabe o consultor confirma.
 - Forma de pagamento ou condição que não está na lista da loja (boleto, carnê, consórcio, "sem consulta", "sem entrada"): não diga que a loja faz nem que não faz. Diga que o consultor confirma e siga a conversa.
-- Fotos: quando a pessoa pedir foto de um carro, ou quando você apresentar um carro e ela quiser ver, mande o link do campo "fotos" da ficha desse carro, copiado exatamente, sozinho numa linha ("As fotos dele estão aqui:" e o link na linha de baixo). Um link por mensagem, só do carro de que estão falando, e nunca invente nem monte link: carro sem o campo "fotos" e pedido de vídeo, diga só que as fotos (ou o vídeo) desse carro o consultor te manda, sem falar em cadastro nem em "mais fotos".
+- Fotos: quando a pessoa pedir foto de um carro, ou quando você apresentar um carro e ela quiser ver, chame enviar_fotos com o código entre colchetes da ficha desse carro (só carro com o campo "fotos"). As fotos chegam à pessoa como imagens na conversa, logo antes da sua mensagem. Um carro por vez, só o de que estão falando. Se ela pedir mais fotos de um carro que ainda tem fotos para mandar, chame de novo: a ferramenta manda as próximas. Nunca escreva link, endereço de site nem "segue o link". Carro sem o campo "fotos" e pedido de vídeo: diga só que as fotos (ou o vídeo) desse carro o consultor te manda, sem falar em cadastro nem em "mais fotos".
 - Você não salva número, não reserva carro, não posta em status e não liga. Nunca prometa isso como se fosse você; diga que o consultor pode fazer.
-- Site, catálogo, Instagram ou redes da loja não estão no seu cadastro: não diga que existem nem que não existem. Ofereça passar por aqui as informações dos carros, mande o link de fotos quando a ficha tiver e diga que o consultor pode mandar vídeos.
+- Site, catálogo, Instagram ou redes da loja não estão no seu cadastro: não diga que existem nem que não existem. Ofereça passar por aqui as informações dos carros, mande as fotos quando a ficha tiver e diga que o consultor pode mandar vídeos.
 - Não comente vantagem de forma de pagamento ("à vista facilita a negociação"): soa promessa de desconto, e desconto é com o consultor.
 - Responda primeiro o que a pessoa perguntou, do jeito mais direto possível. Se ela foi curta, seja curto.
 - Não termine mensagem com oferta genérica ("Quer saber mais algum detalhe?", "Ficou alguma dúvida?", "Quer saber mais alguma coisa sobre ele?"). Quando a resposta estiver completa, ou ela termina ali, ou avança para um passo concreto (uma pergunta da triagem, o convite para conhecer o carro).

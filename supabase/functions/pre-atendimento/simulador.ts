@@ -2,9 +2,10 @@
 // O encaminhamento é de mentira, mas segue a regra real do horário: loja aberta avisa, loja fechada vai para a fila.
 // Serve para calibrar o robô antes de ligar a loja e depois de cada ajuste de prompt.
 import type Anthropic from "npm:@anthropic-ai/sdk";
-import { abertura, aberturaCurta, notaDepoisDaPassagem, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, soLinksDaFicha, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
+import { abertura, aberturaCurta, notaDepoisDaPassagem, ondeContinua, despedidaPadrao, exigirConvite, notasDaConversa, polir, semAvisoRepetido, semLinks, visitaReal, type Encaminhamento, montarMensagens, rodarTurno } from "./conversa.ts";
 import { pessoaPedida } from "./rodizio.ts";
-import { agoraSP, contextoTurno, linkFotos, notaDeCor, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
+import { type Lote, pedirFotos, rotuloFotos } from "./fotos.ts";
+import { agoraSP, contextoTurno, notaDeCor, type Loja, promptSistema, situacaoHorario, type Veiculo } from "./prompt.ts";
 
 export type Cenario = {
   nome: string;
@@ -35,6 +36,7 @@ export async function simular(
     const ficha = estoque.find((v) => v.id === c.ficha_id)
       ?? (c.ficha_busca ? estoque.find((v) => norm(v.titulo).includes(norm(c.ficha_busca!))) : undefined) ?? null;
     let custo = 0, encaminhamento: Encaminhamento | null = null, erro: string | null = null;
+    const jaEnviadas = new Map<string, number>();
     for (const [i, msg] of c.mensagens.entries()) {
       historico.push({ autor: "lead", texto: msg });
       const depois = c.passada_antes_do_turno != null && i >= c.passada_antes_do_turno;
@@ -46,9 +48,11 @@ export async function simular(
           ...(depois ? [notaDepoisDaPassagem(false)] : [])],
       }));
       if (!messages) break;
+      const lotes: Lote[] = [];
       try {
         const t = await rodarTurno({
           cliente, modelo: loja.modelo, sistema, messages,
+          aoPedirFotos: (carro) => { const r = pedirFotos(estoque, carro, jaEnviadas); if (r.lote) lotes.push(r.lote); return r.paraModelo; },
           validar: depois ? undefined : exigirConvite(historico, loja.endereco),
           aoEncaminhar: async (e) => {
             if (depois) return { ok: true, vendedor: null, atualizado: true, onde: ondeContinua(loja.numero_atendimento) };
@@ -64,9 +68,14 @@ export async function simular(
         custo += t.custo;
         /* o histórico aqui já tem a mensagem do lead deste turno, igual ao atendimento real */
         let texto = polir((t.textos.length ? t.textos : t.encaminhado ? [despedidaPadrao(t.encaminhado)] : []).join("\n\n"), historico, !!t.encaminhado, (c.lead_nome ?? "").trim().split(/\s+/)[0] || null);
-        texto = soLinksDaFicha(texto, estoque.map((v) => linkFotos(v, (loja as Loja).link_fotos)).filter((l): l is string => !!l));
+        texto = semLinks(texto);
         if (!texto && t.encaminhado) texto = despedidaPadrao(t.encaminhado);
         if (i === 0 && texto) texto = `${loja.aviso_inicial || abertura({ loja: loja.nome, assistente: loja.nome_assistente, nomeDoLead: c.lead_nome, quando, curta: aberturaCurta(t.encaminhamento?.motivo) })}\n\n${semAvisoRepetido(texto, msg)}`;
+        /* no real, as fotos saem depois da abertura e antes do texto; aqui ficam numa linha própria, com o rótulo do painel */
+        if (i === 0 && texto && lotes.length) {
+          const [oi, ...resto] = texto.split("\n\n");
+          texto = [oi, ...lotes.map((l) => rotuloFotos(l.titulo, l.caminhos.length, l.de + l.caminhos.length, l.total)), ...resto].join("\n\n");
+        } else if (lotes.length) texto = [...lotes.map((l) => rotuloFotos(l.titulo, l.caminhos.length, l.de + l.caminhos.length, l.total)), texto].join("\n\n");
         historico.push({ autor: "robo", texto: texto || "[o robô não respondeu]", bruto: t.textos.join("\n\n") });
         if (t.encaminhamento && depois) { encaminhamento = t.encaminhamento; continue; }
         if (t.encaminhamento) { encaminhamento = { ...t.encaminhamento, visita: visitaReal(t.encaminhamento.visita, historico, loja.endereco) }; break; }

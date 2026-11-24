@@ -32,6 +32,19 @@ export const ENCAMINHAR: Anthropic.Tool = {
   },
 };
 
+/* fotos do carro como imagem na conversa (24/11/2026): a função manda as fotos antes do texto da Bia */
+export const ENVIAR_FOTOS: Anthropic.Tool = {
+  name: "enviar_fotos",
+  description: "Manda à pessoa, como imagens no WhatsApp, as fotos de um carro da ficha que tem o campo \"fotos\". Use quando ela pedir foto do carro ou quiser ver um carro que você apresentou. Um carro por chamada.",
+  strict: true,
+  input_schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["carro"],
+    properties: { carro: { type: "string", description: "O código entre colchetes no começo da ficha do carro, por exemplo 1a2b3c4d." } },
+  },
+};
+
 export type Encaminhamento = { motivo: string; consultor?: string; veiculo: string; troca: string; pagamento: string; visita: string; pendencias: string; resumo: string; primeira_mensagem?: string };
 export type Resultado = { ok: boolean; vendedor: string | null; nomeado?: boolean; fila?: boolean; abre?: string | null; erro?: string;
   atualizado?: boolean /* a conversa já estava com o consultor: só o resumo dele foi atualizado */;
@@ -99,6 +112,7 @@ const resultadoParaModelo = (r: Resultado) =>
 
 export type Turno = {
   textos: string[]; custo: number;
+  fotos: number; // pedidos de fotos atendidos neste turno (as fotos em si a função guarda)
   encaminhado: Resultado | null; encaminhamento: Encaminhamento | null;
   interrompido: boolean; // a conversa saiu do robô enquanto a Claude pensava
 };
@@ -107,6 +121,8 @@ export type Turno = {
 export async function rodarTurno(p: {
   cliente: Anthropic; modelo: string; sistema: string; messages: Anthropic.MessageParam[];
   aoEncaminhar: (e: Encaminhamento) => Promise<Resultado | null>;
+  /* com ele, a Bia pode mandar fotos; devolve o que o modelo lê (fotos separadas, ou por que não) */
+  aoPedirFotos?: (carro: string) => Promise<string> | string;
   /* devolve uma instrução quando o encaminhamento ainda não pode acontecer (o modelo recebe e segue a conversa) */
   validar?: (e: Encaminhamento) => string | null;
 }): Promise<Turno> {
@@ -116,15 +132,16 @@ export async function rodarTurno(p: {
      no primeiro áudio, 23/11/2026). O encaminhamento fica para a próxima mensagem ou para o prazo de 15 minutos. */
   let soTexto = false;
   const precos = PRECOS[p.modelo] ?? PRECOS["claude-sonnet-5"];
-  const t: Turno = { textos: [], custo: 0, encaminhado: null, encaminhamento: null, interrompido: false };
-  for (let volta = 0; volta < 3; volta++) {
+  const t: Turno = { textos: [], custo: 0, fotos: 0, encaminhado: null, encaminhamento: null, interrompido: false };
+  const ferramentas = p.aoPedirFotos ? [ENCAMINHAR, ENVIAR_FOTOS] : [ENCAMINHAR];
+  for (let volta = 0; volta < 4; volta++) {
     const resp = await p.cliente.messages.create({
       model: p.modelo,
       max_tokens: 2048,
       /* triagem de roteiro fechado: esforço baixo responde rápido e custa menos. Haiku 4.5 não aceita effort. */
       ...(p.modelo.startsWith("claude-haiku") ? {} : { output_config: { effort: "low" as const } }),
       system: [{ type: "text", text: p.sistema, cache_control: { type: "ephemeral", ttl: "1h" } }],
-      tools: [ENCAMINHAR],
+      tools: ferramentas,
       ...(soTexto ? { tool_choice: { type: "none" as const } } : {}),
       messages: p.messages,
     });
@@ -134,8 +151,22 @@ export async function rodarTurno(p: {
     if (resp.stop_reason === "refusal") throw new Error("resposta recusada pelo modelo");
 
     for (const b of resp.content) if (b.type === "text" && b.text.trim()) t.textos.push(b.text.trim());
-    const chamada = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-    if (resp.stop_reason !== "tool_use" || !chamada) break;
+    const chamadas = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+    if (resp.stop_reason !== "tool_use" || !chamadas.length) break;
+    /* fotos: separadas agora, enviadas pela função antes do texto. O que veio antes da chamada era preâmbulo ("vou te mandar") */
+    const deFotos: Anthropic.ToolResultBlockParam[] = [];
+    for (const c of chamadas.filter((c) => c.name === ENVIAR_FOTOS.name)) {
+      const texto = p.aoPedirFotos ? await p.aoPedirFotos(String((c.input as { carro?: string }).carro ?? "")) : "Envio de fotos indisponível.";
+      t.fotos++;
+      deFotos.push({ type: "tool_result", tool_use_id: c.id, content: texto });
+    }
+    const chamada = chamadas.find((c) => c.name === ENCAMINHAR.name);
+    if (!chamada) {
+      p.messages.push({ role: "assistant", content: resp.content.filter((b) => b.type !== "text") });
+      p.messages.push({ role: "user", content: deFotos });
+      t.textos.length = 0;
+      continue;
+    }
 
     const e = chamada.input as Encaminhamento;
     const objecao = recusas === 0 ? p.validar?.(e) ?? null : null;
@@ -145,7 +176,7 @@ export async function rodarTurno(p: {
       /* o texto da tentativa recusada não chega à pessoa: sai também do histórico, senão a Bia acha que já respondeu
          (o preço do carro) e manda só o convite */
       p.messages.push({ role: "assistant", content: resp.content.filter((b) => b.type !== "text") });
-      p.messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: chamada.id, is_error: true, content: objecao }] });
+      p.messages.push({ role: "user", content: [...deFotos, { type: "tool_result", tool_use_id: chamada.id, is_error: true, content: objecao }] });
       t.textos.length = 0;
       continue;
     }
@@ -153,7 +184,7 @@ export async function rodarTurno(p: {
     if (!resultado) { t.interrompido = true; return t; }
     t.encaminhado = resultado; t.encaminhamento = e;
     p.messages.push({ role: "assistant", content: resp.content });
-    p.messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: chamada.id, is_error: !resultado.ok, content: resultadoParaModelo(resultado) }] });
+    p.messages.push({ role: "user", content: [...deFotos, { type: "tool_result", tool_use_id: chamada.id, is_error: !resultado.ok, content: resultadoParaModelo(resultado) }] });
     t.textos.length = 0; // o que veio antes da chamada era preâmbulo; vale a despedida
   }
   return t;
@@ -406,16 +437,12 @@ const polirSemLinks = (texto: string, historico: Msg[], encaminhado: boolean, no
     semFrasesFeitas(semTravessao(texto), perguntouSeERobo), encaminhado), historico), historico), historico), historico, nome);
 };
 
-/* A Bia só manda link que está na ficha (a página de fotos de um carro do estoque de hoje). Link inventado ou de carro
-   que saiu sai do texto, e a frase que o apresentava vira "o consultor te manda". */
-export function soLinksDaFicha(texto: string, permitidos: string[]) {
+/* Nenhum link sai para o cliente (Kauan, 24/11/2026): as fotos vão como imagem. Link que o modelo escrever sai do texto, e
+   a frase que o apresentava vira "o consultor te manda". O rótulo "[8 fotos do ... enviadas]" do histórico também não sai. */
+export function semLinks(texto: string) {
   let tirou = false;
-  const t = texto.replace(/https?:\/\/[^\s<>"]+/g, (u) => {
-    const limpo = u.replace(/[.,;:!?)]+$/, "");
-    if (permitidos.includes(limpo)) return u;
-    tirou = true;
-    return "";
-  });
+  texto = texto.split("\n").filter((l) => !/^\s*\[[^\]]*\bfotos? do\b[^\]]*\]\s*$/i.test(l)).join("\n").trim();
+  const t = texto.replace(/(https?:\/\/|www\.)[^\s<>"]+/gi, () => { tirou = true; return ""; });
   if (!tirou) return texto;
   const sem = t.split("\n").map((l) => l.trim()).filter(Boolean)
     .map((l) => /:\s*$/.test(l) && /foto/i.test(l) ? "As fotos dele o consultor te manda." : l).join("\n").trim();
