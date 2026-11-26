@@ -543,6 +543,10 @@ async function responder(loja: Linha, conversaId: string, depoisDaPassagem = fal
 async function enviarFotos(loja: Linha, conversa: Linha, lotes: Lote[]) {
   let alguma = false;
   for (const l of lotes) {
+    /* duas respostas em paralelo (o cliente pediu a foto e mandou mais mensagens enquanto a Bia escrevia) separaram o
+       mesmo lote: o Wemerson recebeu as 8 primeiras do Gol duas vezes (25/11/2026). Confere na hora de mandar. */
+    const { data: ja } = await admin.from("pa_mensagens").select("anexo").eq("conversa_id", conversa.id).not("anexo", "is", null);
+    if ((fotosJaEnviadas((ja ?? []).map((a: Linha) => a.anexo as AnexoFotos)).get(l.codigo) ?? 0) > l.de) { alguma = true; continue; }
     const ids = await Promise.all(l.caminhos.map(async (c) => {
       try {
         const { data, error } = await admin.storage.from(BALDE_FOTOS).download(c);

@@ -16,9 +16,10 @@ Deno.test("áudio e foto chegam para a Bia como texto rotulado", () => {
 
 Deno.test("a ficha diz quantas fotos o carro tem, sem link nenhum", () => {
   assertEquals(linhaFicha(gol).endsWith("| fotos: 3"), true);
-  assertEquals(linhaFicha({ ...gol, fotos: [] }).includes("fotos:"), false);
+  /* carro sem foto diz que não tem, para a Bia não oferecer (24/11/2026) */
+  assertEquals(linhaFicha({ ...gol, fotos: [] }).endsWith("| fotos: nenhuma (não ofereça foto)"), true);
   /* link antigo do BNDV não conta como foto */
-  assertEquals(linhaFicha({ ...gol, fotos: ["https://cdn-sistema-lojistas.bndv.com.br/x/a.webp"] }).includes("fotos:"), false);
+  assertEquals(linhaFicha({ ...gol, fotos: ["https://cdn-sistema-lojistas.bndv.com.br/x/a.webp"] }).endsWith("fotos: nenhuma (não ofereça foto)"), true);
   assertEquals(linhaFicha(gol).includes("http"), false);
 });
 

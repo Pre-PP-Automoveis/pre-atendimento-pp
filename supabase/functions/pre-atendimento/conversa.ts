@@ -117,6 +117,15 @@ export type Turno = {
   interrompido: boolean; // a conversa saiu do robô enquanto a Claude pensava
 };
 
+/* A Bia escreveu uma versão, percebeu o erro e corrigiu na mesma mensagem: "...Na verdade", "Só corrigindo", "deixa eu ajustar".
+   O cliente via o erro e a correção (24/11/2026: G6 2017 que não existe, Gol automático que é manual). */
+export const seCorrigiu = (texto: string) =>
+  /\.\.\.\s*(na verdade|s[oó] corrigindo|corrigindo|deixa eu (ajustar|corrigir|rever)|ali[aá]s|quer dizer|mas aqui n[aã]o tenho)|\b(s[oó] corrigindo|deixa eu (ajustar|corrigir)|me enganei|corrijo:)/i.test(texto);
+
+/* o que a Bia lê quando a mensagem se corrigiu no meio: não é da pessoa e não chega a ela */
+export const REESCREVER = "[aviso interno, não é mensagem da pessoa: a sua mensagem acima se corrigiu no meio e não foi enviada. " +
+  "Confira a ficha e escreva de novo a resposta inteira, já certa, sem corrigir a si mesma, sem reticências e sem citar carro que não está na ficha.]";
+
 /* aoEncaminhar devolve null quando a conversa já não é do robô (o time ou o cron levaram): o turno para ali */
 export async function rodarTurno(p: {
   cliente: Anthropic; modelo: string; sistema: string; messages: Anthropic.MessageParam[];
@@ -131,6 +140,7 @@ export async function rodarTurno(p: {
      Sem isso ela chamava de novo, passava ao consultor e só se despedia, sem responder o carro (cliente que manda tudo
      no primeiro áudio, 23/11/2026). O encaminhamento fica para a próxima mensagem ou para o prazo de 15 minutos. */
   let soTexto = false;
+  let reescreveu = false;
   const precos = PRECOS[p.modelo] ?? PRECOS["claude-sonnet-5"];
   const t: Turno = { textos: [], custo: 0, fotos: 0, encaminhado: null, encaminhamento: null, interrompido: false };
   const ferramentas = p.aoPedirFotos ? [ENCAMINHAR, ENVIAR_FOTOS] : [ENCAMINHAR];
@@ -152,7 +162,19 @@ export async function rodarTurno(p: {
 
     for (const b of resp.content) if (b.type === "text" && b.text.trim()) t.textos.push(b.text.trim());
     const chamadas = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-    if (resp.stop_reason !== "tool_use" || !chamadas.length) break;
+    if (resp.stop_reason !== "tool_use" || !chamadas.length) {
+      /* a Bia se corrigiu no meio da mensagem ("o G6 2017 vermelho... Na verdade esse é o Gol 2022"): a mensagem não sai,
+         e ela escreve de novo, já certa (quatro casos de 17 a 24/11/2026). Uma vez só por turno. */
+      if (!reescreveu && seCorrigiu(t.textos.join("\n"))) {
+        reescreveu = true;
+        soTexto = true;
+        p.messages.push({ role: "assistant", content: resp.content.filter((b) => b.type === "text") });
+        p.messages.push({ role: "user", content: [{ type: "text", text: REESCREVER }] });
+        t.textos.length = 0;
+        continue;
+      }
+      break;
+    }
     /* fotos: separadas agora, enviadas pela função antes do texto. O que veio antes da chamada era preâmbulo ("vou te mandar") */
     const deFotos: Anthropic.ToolResultBlockParam[] = [];
     for (const c of chamadas.filter((c) => c.name === ENVIAR_FOTOS.name)) {

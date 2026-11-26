@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { semAvisoRepetido } from "./conversa.ts";
+import { seCorrigiu } from "./conversa.ts";
 
 Deno.test("tira a frase em que o robô se anuncia, mantém o cumprimento", () => {
   assertEquals(semAvisoRepetido("Boa noite! Este atendimento é automático. Sim, o Cobalt está disponível.", "o cobalt ainda tá aí?"),
@@ -266,4 +267,14 @@ Deno.test("fim de semana de 24 e 25/10: confirmação sem resposta, promessa de 
 Deno.test("'na nossa ficha' e procedência fora da boca da Bia (28/10)", () => {
   assertEquals(polimento("Isso quem confirma é o consultor, viu Conceição? Na nossa ficha não temos informação sobre procedência ou histórico de leilão. Posso seguir te ajudando."),
     "Isso quem confirma é o consultor, viu Conceição? Posso seguir te ajudando.");
+});
+
+Deno.test("mensagem que se corrige no meio volta para ser reescrita", () => {
+  assertEquals(seCorrigiu("Temos o G6 2017 vermelho, com rodas de liga leve... Na verdade esse é o Gol 1.0 2022/2023 branco."), true);
+  assertEquals(seCorrigiu("o Gol 0km... Só corrigindo: o mais recente é o 2022/2023."), true);
+  assertEquals(seCorrigiu("como o Gol automático... Na verdade esse é manual, deixa eu ajustar: temos o Spin."), true);
+  assertEquals(seCorrigiu("Eu te indicaria o HB20S... Mas aqui não tenho esse modelo cadastrado agora."), true);
+  /* "na verdade" sem reticências é jeito de falar, não correção */
+  assertEquals(seCorrigiu("Na verdade a loja aceita troca sim. Qual é o seu carro?"), false);
+  assertEquals(seCorrigiu("Temos o Gol G5 2012 por R$ 34.900. Você tem carro na troca?"), false);
 });
